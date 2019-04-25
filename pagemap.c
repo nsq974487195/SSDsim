@@ -15,13 +15,8 @@ Shuangwu Zhang  2011/11/01        2.1           Change               820876427@q
 Chao Ren        2011/07/01        2.0           Change               529517386@qq.com
 Hao Luo         2011/01/01        2.0           Change               luohao135680@gmail.com
 *****************************************************************************************************************************/
-
-#define _CRTDBG_MAP_ALLOC
  
 #include "pagemap.h"
-
-
-
 
 
 int page_type(struct ssd_info *ssd, unsigned int page_loc)
@@ -35,40 +30,44 @@ int page_type(struct ssd_info *ssd, unsigned int page_loc)
 	// 	page_type_tlc = 3;
 	// else 
 
-	if(page_loc%3 == 0)
-		page_type_tlc = 1;
-	else if(page_loc%3 == 1)
-		page_type_tlc = 2;
-	else if(page_loc%3 == 2)
-		page_type_tlc = 3;
+	if(page_loc%3 == 0) page_type_tlc = 1;
+
+	else if(page_loc%3 == 1) page_type_tlc = 2;
+
+	else if(page_loc%3 == 2) page_type_tlc = 3;
 
 	if(page_type_tlc == 0){
-		printf("tlc page type error\n");
-		getchar();
+
+		printf("tlc page type error\n"); getchar();
 	}
 
 	return page_type_tlc;
-
 }
+
 
 int page_program_time(struct ssd_info *ssd, unsigned int page_loc)
 {
 	int tlc_time=0;
+
 	int page_type_tlc = 0;
+
 	page_type_tlc = page_type(ssd,page_loc);
-	if(page_type_tlc == 1)
-		tlc_time = ssd->parameter->time_characteristics.pLSB;//500000;
-	else if(page_type_tlc == 2 )
-		tlc_time = ssd->parameter->time_characteristics.pCSB;//2000000;
-	else if(page_type_tlc == 3)
-		tlc_time = ssd->parameter->time_characteristics.pMSB;//5500000;
+
+	if(page_type_tlc == 1) tlc_time = ssd->parameter->time_characteristics.pLSB;
+
+	else if(page_type_tlc == 2 ) tlc_time = ssd->parameter->time_characteristics.pCSB;
+
+	else if(page_type_tlc == 3)  tlc_time = ssd->parameter->time_characteristics.pMSB;
 
 	if(tlc_time == 0){
-		printf("tlc time error\n");
-		getchar();
+
+		printf("tlc time error\n"); getchar();
 	}
+
 	return tlc_time;
 }
+
+
 
 int page_read_time(struct ssd_info *ssd, unsigned int page_loc, int pv=0)
 {
@@ -78,22 +77,17 @@ int page_read_time(struct ssd_info *ssd, unsigned int page_loc, int pv=0)
 
 	page_type_tlc = page_type(ssd,page_loc);
 
-	if(page_type_tlc == 1)
+	if(page_type_tlc == 1)  tlc_time = ssd->parameter->time_characteristics.rLSB;
 
-		tlc_time = ssd->parameter->time_characteristics.rLSB;
+	else if(page_type_tlc == 2 )  tlc_time = ssd->parameter->time_characteristics.rCSB;
 
-	else if(page_type_tlc == 2 )
-
-		tlc_time = ssd->parameter->time_characteristics.rCSB;
-
-	else if(page_type_tlc == 3)
-		
-		tlc_time = ssd->parameter->time_characteristics.rMSB;
+	else if(page_type_tlc == 3)  tlc_time = ssd->parameter->time_characteristics.rMSB;
 
 	if(tlc_time == 0){
-		printf("tlc time error\n");
-		getchar();
+
+		printf("tlc time error\n"); getchar();
 	}
+
 	return tlc_time;
 }
 
@@ -107,11 +101,8 @@ int page_read_time(struct ssd_info *ssd, unsigned int page_loc, int pv=0)
 struct local *find_location(struct ssd_info *ssd,unsigned int ppn)
 {
 	struct local *location=NULL;
-	unsigned int i=0;
-	int pn,ppn_value=ppn;
-	int page_plane=0,page_die=0,page_chip=0,page_channel=0;
 
-	pn = ppn;
+	int page_plane=0,page_die=0,page_chip=0,page_channel=0;
 
 #ifdef DEBUG
 	printf("enter find_location\n");
@@ -122,8 +113,11 @@ struct local *find_location(struct ssd_info *ssd,unsigned int ppn)
 	memset(location,0, sizeof(struct local));
 
 	page_plane=ssd->parameter->page_block*ssd->parameter->block_plane;
+
 	page_die=page_plane*ssd->parameter->plane_die;
+
 	page_chip=page_die*ssd->parameter->die_chip;
+
 	page_channel=page_chip*ssd->parameter->chip_channel[0];
 	
 	/*******************************************************************************
@@ -131,10 +125,15 @@ struct local *find_location(struct ssd_info *ssd,unsigned int ppn)
 	*用同样的办法可以得到chip，die，plane，block，page
 	********************************************************************************/
 	location->channel = ppn/page_channel;
+
 	location->chip = (ppn%page_channel)/page_chip;
+
 	location->die = ((ppn%page_channel)%page_chip)/page_die;
+
 	location->plane = (((ppn%page_channel)%page_chip)%page_die)/page_plane;
+
 	location->block = ((((ppn%page_channel)%page_chip)%page_die)%page_plane)/ssd->parameter->page_block;
+
 	location->page = (((((ppn%page_channel)%page_chip)%page_die)%page_plane)%ssd->parameter->page_block)%ssd->parameter->page_block;
 
 	return location;
