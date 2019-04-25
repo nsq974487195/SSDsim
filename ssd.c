@@ -23,11 +23,11 @@ Hao Luo         2011/01/01        2.0           Change               luohao13568
 
 
 /********************************************************************************************************************************
-1£¬mainº¯ÊýÖÐinitiatio()º¯ÊýÓÃÀ´³õÊ¼»¯ssd,£»2£¬make_aged()º¯ÊýÊ¹SSD³ÉÎªaged£¬agedµÄssdÏàµ±ÓÚÊ¹ÓÃ¹ýÒ»¶ÎÊ±¼äµÄssd£¬ÀïÃæÓÐÊ§Ð§Ò³£¬
-non_agedµÄssdÊÇÐÂµÄssd£¬ÎÞÊ§Ð§Ò³£¬Ê§Ð§Ò³µÄ±ÈÀý¿ÉÒÔÔÚ³õÊ¼»¯²ÎÊýÖÐÉèÖÃ£»3£¬pre_process_page()º¯ÊýÌáÇ°É¨Ò»±é¶ÁÇëÇó£¬°Ñ¶ÁÇëÇó
-µÄlpn<--->ppnÓ³Éä¹ØÏµÊÂÏÈ½¨Á¢ºÃ£¬Ð´ÇëÇóµÄlpn<--->ppnÓ³Éä¹ØÏµÔÚÐ´µÄÊ±ºòÔÙ½¨Á¢£¬Ô¤´¦Àítrace·ÀÖ¹¶ÁÇëÇóÊÇ¶Á²»µ½Êý¾Ý£»4£¬simulate()ÊÇ
-ºËÐÄ´¦Àíº¯Êý£¬traceÎÄ¼þ´Ó¶Á½øÀ´µ½´¦ÀíÍê³É¶¼ÓÉÕâ¸öº¯ÊýÀ´Íê³É£»5£¬statistic_output()º¯Êý½«ssd½á¹¹ÖÐµÄÐÅÏ¢Êä³öµ½Êä³öÎÄ¼þ£¬Êä³öµÄÊÇ
-Í³¼ÆÊý¾ÝºÍÆ½¾ùÊý¾Ý£¬Êä³öÎÄ¼þ½ÏÐ¡£¬trace_outputÎÄ¼þÔòºÜ´óºÜÏêÏ¸£»6£¬free_all_node()º¯ÊýÊÍ·ÅÕû¸ömainº¯ÊýÖÐÉêÇëµÄ½Úµã
+1，main函数中initiatio()函数用来初始化ssd,；2，make_aged()函数使SSD成为aged，aged的ssd相当于使用过一段时间的ssd，里面有失效页，
+non_aged的ssd是新的ssd，无失效页，失效页的比例可以在初始化参数中设置；3，pre_process_page()函数提前扫一遍读请求，把读请求
+的lpn<--->ppn映射关系事先建立好，写请求的lpn<--->ppn映射关系在写的时候再建立，预处理trace防止读请求是读不到数据；4，simulate()是
+核心处理函数，trace文件从读进来到处理完成都由这个函数来完成；5，statistic_output()函数将ssd结构中的信息输出到输出文件，输出的是
+统计数据和平均数据，输出文件较小，trace_output文件则很大很详细；6，free_all_node()函数释放整个main函数中申请的节点
 *********************************************************************************************************************************/
 int  main(int argc, char const *argv[])
 {
@@ -137,11 +137,11 @@ int  main(int argc, char const *argv[])
 
 
 /******************simulate() *********************************************************************
-*simulate()ÊÇºËÐÄ´¦Àíº¯Êý£¬Ö÷ÒªÊµÏÖµÄ¹¦ÄÜ°üÀ¨
-*1,´ÓtraceÎÄ¼þÖÐ»ñÈ¡Ò»ÌõÇëÇó£¬¹Òµ½ssd->request
-*2£¬¸ù¾ÝssdÊÇ·ñÓÐdram·Ö±ð´¦Àí¶Á³öÀ´µÄÇëÇó£¬°ÑÕâÐ©ÇëÇó´¦Àí³ÉÎª¶ÁÐ´×ÓÇëÇó£¬¹Òµ½ssd->channel»òÕßssdÉÏ
-*3£¬°´ÕÕÊÂ¼þµÄÏÈºóÀ´´¦ÀíÕâÐ©¶ÁÐ´×ÓÇëÇó¡£
-*4£¬Êä³öÃ¿ÌõÇëÇóµÄ×ÓÇëÇó¶¼´¦ÀíÍêºóµÄÏà¹ØÐÅÏ¢µ½outputfileÎÄ¼þÖÐ
+*simulate()是核心处理函数，主要实现的功能包括
+*1,从trace文件中获取一条请求，挂到ssd->request
+*2，根据ssd是否有dram分别处理读出来的请求，把这些请求处理成为读写子请求，挂到ssd->channel或者ssd上
+*3，按照事件的先后来处理这些读写子请求。
+*4，输出每条请求的子请求都处理完后的相关信息到outputfile文件中
 **************************************************************************************************/
 struct ssd_info *simulate(struct ssd_info *ssd)
 {
@@ -272,10 +272,10 @@ int read_data(struct ssd_info *ssd,char *buffer, int64_t *time_t, int *lsn, int 
 *	return	0: reach the end of the trace
 *			-1: no request has been added
 *			1: add one request to list
-*SSDÄ£ÄâÆ÷ÓÐÈýÖÖÇý¶¯·½Ê½:Ê±ÖÓÇý¶¯(¾«È·£¬Ì«Âý) ÊÂ¼þÇý¶¯(±¾³ÌÐò²ÉÓÃ) traceÇý¶¯()£¬
-*Á½ÖÖ·½Ê½ÍÆ½øÊÂ¼þ£ºchannel/chip×´Ì¬¸Ä±ä¡¢traceÎÄ¼þÇëÇó´ïµ½¡£
-*channel/chip×´Ì¬¸Ä±äºÍtraceÎÄ¼þÇëÇóµ½´ïÊÇÉ¢²¼ÔÚÊ±¼äÖáÉÏµÄµã£¬Ã¿´Î´Óµ±Ç°×´Ì¬µ½´ï
-*ÏÂÒ»¸ö×´Ì¬¶¼Òªµ½´ï×î½üµÄÒ»¸ö×´Ì¬£¬Ã¿µ½´ïÒ»¸öµãÖ´ÐÐÒ»´Îprocess
+*SSD模拟器有三种驱动方式:时钟驱动(精确，太慢) 事件驱动(本程序采用) trace驱动()，
+*两种方式推进事件：channel/chip状态改变、trace文件请求达到。
+*channel/chip状态改变和trace文件请求到达是散布在时间轴上的点，每次从当前状态到达
+*下一个状态都要到达最近的一个状态，每到达一个点执行一次process
 ********************************************************************************/
 int get_requests(struct ssd_info *ssd)  
 {  
@@ -329,11 +329,12 @@ int get_requests(struct ssd_info *ssd)
 	}
 
 	/******************************************************************************************************
-	*ÉÏ²ãÎÄ¼þÏµÍ³·¢ËÍ¸øSSDµÄÈÎºÎ¶ÁÐ´ÃüÁî°üÀ¨Á½¸ö²¿·Ö£¨LSN£¬size£© LSNÊÇÂß¼­ÉÈÇøºÅ£¬¶ÔÓÚÎÄ¼þÏµÍ³¶øÑÔ£¬ËüËù¿´µ½µÄ´æ
-	*´¢¿Õ¼äÊÇÒ»¸öÏßÐÔµÄÁ¬Ðø¿Õ¼ä¡£ÀýÈç£¬¶ÁÇëÇó£¨260£¬6£©±íÊ¾µÄÊÇÐèÒª¶ÁÈ¡´ÓÉÈÇøºÅÎª260µÄÂß¼­ÉÈÇø¿ªÊ¼£¬×Ü¹²6¸öÉÈÇø¡£
-	*large_lsn: channelÏÂÃæÓÐ¶àÉÙ¸ösubpage£¬¼´¶àÉÙ¸ösector¡£overprovideÏµÊý£ºSSDÖÐ²¢²»ÊÇËùÓÐµÄ¿Õ¼ä¶¼¿ÉÒÔ¸øÓÃ»§Ê¹ÓÃ£¬
-	*±ÈÈç32GµÄSSD¿ÉÄÜÓÐ10%µÄ¿Õ¼ä±£ÁôÏÂÀ´Áô×÷ËûÓÃ£¬ËùÒÔ³ËÒÔ1-provide
+	*上层文件系统发送给SSD的任何读写命令包括两个部分（LSN，size） LSN是逻辑扇区号，对于文件系统而言，它所看到的存
+	*储空间是一个线性的连续空间。例如，读请求（260，6）表示的是需要读取从扇区号为260的逻辑扇区开始，总共6个扇区。
+	*large_lsn: channel下面有多少个subpage，即多少个sector。overprovide系数：SSD中并不是所有的空间都可以给用户使用，
+	*比如32G的SSD可能有10%的空间保留下来留作他用，所以乘以1-provide
 	***********************************************************************************************************/
+
 
 	
 
@@ -352,12 +353,12 @@ int get_requests(struct ssd_info *ssd)
 		if(nearest_event_time<time_t)
 		{
 			/*******************************************************************************
-			*»Ø¹ö£¬¼´Èç¹ûÃ»ÓÐ°Ñtime_t¸³¸øssd->current_time£¬ÔòtraceÎÄ¼þÒÑ¶ÁµÄÒ»Ìõ¼ÇÂ¼»Ø¹ö
-			*filepoint¼ÇÂ¼ÁËÖ´ÐÐfgetsÖ®Ç°µÄÎÄ¼þÖ¸ÕëÎ»ÖÃ£¬»Ø¹öµ½ÎÄ¼þÍ·+filepoint´¦
-			*int fseek(FILE *stream, long offset, int fromwhere);º¯ÊýÉèÖÃÎÄ¼þÖ¸ÕëstreamµÄÎ»ÖÃ¡£
-			*Èç¹ûÖ´ÐÐ³É¹¦£¬stream½«Ö¸ÏòÒÔfromwhere£¨Æ«ÒÆÆðÊ¼Î»ÖÃ£ºÎÄ¼þÍ·0£¬µ±Ç°Î»ÖÃ1£¬ÎÄ¼þÎ²2£©Îª»ù×¼£¬
-			*Æ«ÒÆoffset£¨Ö¸ÕëÆ«ÒÆÁ¿£©¸ö×Ö½ÚµÄÎ»ÖÃ¡£Èç¹ûÖ´ÐÐÊ§°Ü(±ÈÈçoffset³¬¹ýÎÄ¼þ×ÔÉí´óÐ¡)£¬Ôò²»¸Ä±ästreamÖ¸ÏòµÄÎ»ÖÃ¡£
-			*ÎÄ±¾ÎÄ¼þÖ»ÄÜ²ÉÓÃÎÄ¼þÍ·0µÄ¶¨Î»·½Ê½£¬±¾³ÌÐòÖÐ´ò¿ªÎÄ¼þ·½Ê½ÊÇ"r":ÒÔÖ»¶Á·½Ê½´ò¿ªÎÄ±¾ÎÄ¼þ	
+			*回滚，即如果没有把time_t赋给ssd->current_time，则trace文件已读的一条记录回滚
+			*filepoint记录了执行fgets之前的文件指针位置，回滚到文件头+filepoint处
+			*int fseek(FILE *stream, long offset, int fromwhere);函数设置文件指针stream的位置。
+			*如果执行成功，stream将指向以fromwhere（偏移起始位置：文件头0，当前位置1，文件尾2）为基准，
+			*偏移offset（指针偏移量）个字节的位置。如果执行失败(比如offset超过文件自身大小)，则不改变stream指向的位置。
+			*文本文件只能采用文件头0的定位方式，本程序中打开文件方式是"r":以只读方式打开文本文件	
 			**********************************************************************************/
 			fseek(ssd->tracefile,filepoint,0); 
 			if(ssd->current_time<=nearest_event_time)
@@ -379,9 +380,6 @@ int get_requests(struct ssd_info *ssd)
 			}
 		}
 	}
-
-
-
 
 
 	if (lsn<ssd->min_lsn) 
@@ -424,7 +422,7 @@ int get_requests(struct ssd_info *ssd)
 		ssd->request_queue_length++;
 	}
 
-	if (request1->operation==1)             //¼ÆËãÆ½¾ùÇëÇó´óÐ¡ 1Îª¶Á 0ÎªÐ´
+	if (request1->operation==1)            //计算平均请求大小 1为读 0为写
 	{
 		ssd->ave_read_size=(ssd->ave_read_size*ssd->read_request_count+request1->size)/(ssd->read_request_count+1);
 	} 
@@ -447,15 +445,15 @@ int get_requests(struct ssd_info *ssd)
 }
 
 /**********************************************************************************************************************************************
-*Ê×ÏÈbufferÊÇ¸öÐ´buffer£¬¾ÍÊÇÎªÐ´ÇëÇó·þÎñµÄ£¬ÒòÎª¶ÁflashµÄÊ±¼ätRÎª20us£¬Ð´flashµÄÊ±¼ätprogÎª200us£¬ËùÒÔÎªÐ´·þÎñ¸üÄÜ½ÚÊ¡Ê±¼ä
-*  ¶Á²Ù×÷£ºÈç¹ûÃüÖÐÁËbuffer£¬´Óbuffer¶Á£¬²»Õ¼ÓÃchannelµÄI/O×ÜÏß£¬Ã»ÓÐÃüÖÐbuffer£¬´Óflash¶Á£¬Õ¼ÓÃchannelµÄI/O×ÜÏß£¬µ«ÊÇ²»½øbufferÁË
-*  Ð´²Ù×÷£ºÊ×ÏÈrequest·Ö³Ésub_request×ÓÇëÇó£¬Èç¹ûÊÇ¶¯Ì¬·ÖÅä£¬sub_request¹Òµ½ssd->sub_requestÉÏ£¬ÒòÎª²»ÖªµÀÒªÏÈ¹Òµ½ÄÄ¸öchannelµÄsub_requestÉÏ
-*          Èç¹ûÊÇ¾²Ì¬·ÖÅäÔòsub_request¹Òµ½channelµÄsub_requestÁ´ÉÏ,Í¬Ê±²»¹Ü¶¯Ì¬·ÖÅä»¹ÊÇ¾²Ì¬·ÖÅäsub_request¶¼Òª¹Òµ½requestµÄsub_requestÁ´ÉÏ
-*		   ÒòÎªÃ¿´¦ÀíÍêÒ»¸örequest£¬¶¼ÒªÔÚtraceoutputÎÄ¼þÖÐÊä³ö¹ØÓÚÕâ¸örequestµÄÐÅÏ¢¡£´¦ÀíÍêÒ»¸ösub_request,¾Í½«Æä´ÓchannelµÄsub_requestÁ´
-*		   »òssdµÄsub_requestÁ´ÉÏÕª³ý£¬µ«ÊÇÔÚtraceoutputÎÄ¼þÊä³öÒ»ÌõºóÔÙÇå¿ÕrequestµÄsub_requestÁ´¡£
-*		   sub_requestÃüÖÐbufferÔòÔÚbufferÀïÃæÐ´¾ÍÐÐÁË£¬²¢ÇÒ½«¸Ãsub_pageÌáµ½bufferÁ´Í·(LRU)£¬ÈôÃ»ÓÐÃüÖÐÇÒbufferÂú£¬ÔòÏÈ½«bufferÁ´Î²µÄsub_request
-*		   Ð´Èëflash(Õâ»á²úÉúÒ»¸ösub_requestÐ´ÇëÇó£¬¹Òµ½Õâ¸öÇëÇórequestµÄsub_requestÁ´ÉÏ£¬Í¬Ê±ÊÓ¶¯Ì¬·ÖÅä»¹ÊÇ¾²Ì¬·ÖÅä¹Òµ½channel»òssdµÄ
-*		   sub_requestÁ´ÉÏ),ÔÚ½«ÒªÐ´µÄsub_pageÐ´ÈëbufferÁ´Í·
+*首先buffer是个写buffer，就是为写请求服务的，因为读flash的时间tR为20us，写flash的时间tprog为200us，所以为写服务更能节省时间
+*  读操作：如果命中了buffer，从buffer读，不占用channel的I/O总线，没有命中buffer，从flash读，占用channel的I/O总线，但是不进buffer了
+*  写操作：首先request分成sub_request子请求，如果是动态分配，sub_request挂到ssd->sub_request上，因为不知道要先挂到哪个channel的sub_request上
+*          如果是静态分配则sub_request挂到channel的sub_request链上,同时不管动态分配还是静态分配sub_request都要挂到request的sub_request链上
+*		   因为每处理完一个request，都要在traceoutput文件中输出关于这个request的信息。处理完一个sub_request,就将其从channel的sub_request链
+*		   或ssd的sub_request链上摘除，但是在traceoutput文件输出一条后再清空request的sub_request链。
+*		   sub_request命中buffer则在buffer里面写就行了，并且将该sub_page提到buffer链头(LRU)，若没有命中且buffer满，则先将buffer链尾的sub_request
+*		   写入flash(这会产生一个sub_request写请求，挂到这个请求request的sub_request链上，同时视动态分配还是静态分配挂到channel或ssd的
+*		   sub_request链上),在将要写的sub_page写入buffer链头
 ***********************************************************************************************************************************************/
 struct ssd_info *buffer_management(struct ssd_info *ssd)
 {   
@@ -486,8 +484,8 @@ struct ssd_info *buffer_management(struct ssd_info *ssd)
 		while(lpn<=last_lpn)      		
 		{
 			/************************************************************************************************
-			 *need_distb_flag±íÊ¾ÊÇ·ñÐèÒªÖ´ÐÐdistributionº¯Êý£¬1±íÊ¾ÐèÒªÖ´ÐÐ£¬bufferÖÐÃ»ÓÐ£¬0±íÊ¾²»ÐèÒªÖ´ÐÐ
-             *¼´1±íÊ¾ÐèÒª·Ö·¢£¬0±íÊ¾²»ÐèÒª·Ö·¢£¬¶ÔÓ¦µã³õÊ¼È«²¿¸³Îª1
+			 *need_distb_flag表示是否需要执行distribution函数，1表示需要执行，buffer中没有，0表示不需要执行
+             *即1表示需要分发，0表示不需要分发，对应点初始全部赋为1
 			*************************************************************************************************/
 			need_distb_flag=full_page;   
 			key.group=lpn;
@@ -580,8 +578,8 @@ struct ssd_info *buffer_management(struct ssd_info *ssd)
 	}
 
 	/*************************************************************
-	*Èç¹ûÇëÇóÒÑ¾­±»È«²¿ÓÉbuffer·þÎñ£¬¸ÃÇëÇó¿ÉÒÔ±»Ö±½ÓÏìÓ¦£¬Êä³ö½á¹û
-	*ÕâÀï¼ÙÉèdramµÄ·þÎñÊ±¼äÎª1000ns
+	*如果请求已经被全部由buffer服务，该请求可以被直接响应，输出结果
+	*这里假设dram的服务时间为1000ns
 	**************************************************************/
 	if((complete_flag == 1)&&(new_request->subs==NULL))               
 	{
@@ -593,7 +591,7 @@ struct ssd_info *buffer_management(struct ssd_info *ssd)
 }
 
 /*****************************
-*lpnÏòppnµÄ×ª»»
+*lpn向ppn的转换
 ******************************/
 unsigned int lpn2ppn(struct ssd_info *ssd,unsigned int lsn)
 {
@@ -608,9 +606,9 @@ unsigned int lpn2ppn(struct ssd_info *ssd,unsigned int lsn)
 }
 
 /**********************************************************************************
-*¶ÁÇëÇó·ÖÅä×ÓÇëÇóº¯Êý£¬ÕâÀïÖ»´¦Àí¶ÁÇëÇó£¬Ð´ÇëÇóÒÑ¾­ÔÚbuffer_management()º¯ÊýÖÐ´¦ÀíÁË
-*¸ù¾ÝÇëÇó¶ÓÁÐºÍbufferÃüÖÐµÄ¼ì²é£¬½«Ã¿¸öÇëÇó·Ö½â³É×ÓÇëÇó£¬½«×ÓÇëÇó¶ÓÁÐ¹ÒÔÚchannelÉÏ£¬
-*²»Í¬µÄchannelÓÐ×Ô¼ºµÄ×ÓÇëÇó¶ÓÁÐ
+*读请求分配子请求函数，这里只处理读请求，写请求已经在buffer_management()函数中处理了
+*根据请求队列和buffer命中的检查，将每个请求分解成子请求，将子请求队列挂在channel上，
+*不同的channel有自己的子请求队列
 **********************************************************************************/
 
 struct ssd_info *distribute(struct ssd_info *ssd) 
@@ -653,10 +651,10 @@ struct ssd_info *distribute(struct ssd_info *ssd)
 				while(i >= 0)
 				{	
 					/*************************************************************************************
-					*Ò»¸ö32Î»µÄÕûÐÍÊý¾ÝµÄÃ¿Ò»Î»´ú±íÒ»¸ö×ÓÒ³£¬32/ssd->parameter->subpage_page¾Í±íÊ¾ÓÐ¶àÉÙÒ³£¬
-					*ÕâÀïµÄÃ¿Ò»Ò³µÄ×´Ì¬¶¼´æ·ÅÔÚÁË req->need_distr_flagÖÐ£¬Ò²¾ÍÊÇcompltÖÐ£¬Í¨¹ý±È½ÏcompltµÄ
-					*Ã¿Ò»ÏîÓëfull_page£¬¾Í¿ÉÒÔÖªµÀ£¬ÕâÒ»Ò³ÊÇ·ñ´¦ÀíÍê³É¡£Èç¹ûÃ»´¦ÀíÍê³ÉÔòÍ¨¹ýcreat_sub_request
-					º¯Êý´´½¨×ÓÇëÇó¡£
+					*一个32位的整型数据的每一位代表一个子页，32/ssd->parameter->subpage_page就表示有多少页，
+					*这里的每一页的状态都存放在了 req->need_distr_flag中，也就是complt中，通过比较complt的
+					*每一项与full_page，就可以知道，这一页是否处理完成。如果没处理完成则通过creat_sub_request
+					函数创建子请求。
 					*************************************************************************************/
 					for(j=0; j<32/ssd->parameter->subpage_page; j++)
 					{	
@@ -692,8 +690,8 @@ struct ssd_info *distribute(struct ssd_info *ssd)
 
 
 /**********************************************************************
-*trace_output()º¯ÊýÊÇÔÚÃ¿Ò»ÌõÇëÇóµÄËùÓÐ×ÓÇëÇó¾­¹ýprocess()º¯Êý´¦ÀíÍêºó£¬
-*´òÓ¡Êä³öÏà¹ØµÄÔËÐÐ½á¹ûµ½outputfileÎÄ¼þÖÐ£¬ÕâÀïµÄ½á¹ûÖ÷ÒªÊÇÔËÐÐµÄÊ±¼ä
+*trace_output()函数是在每一条请求的所有子请求经过process()函数处理完后，
+*打印输出相关的运行结果到outputfile文件中，这里的结果主要是运行的时间
 **********************************************************************/
 void trace_output(struct ssd_info* ssd){
 	int flag = 1;	
@@ -936,10 +934,10 @@ void trace_output(struct ssd_info* ssd){
 
 
 /*******************************************************************************
-*statistic_output()º¯ÊýÖ÷ÒªÊÇÊä³ö´¦ÀíÍêÒ»ÌõÇëÇóºóµÄÏà¹Ø´¦ÀíÐÅÏ¢¡£
-*1£¬¼ÆËã³öÃ¿¸öplaneµÄ²Á³ý´ÎÊý¼´plane_eraseºÍ×ÜµÄ²Á³ý´ÎÊý¼´erase
-*2£¬´òÓ¡min_lsn£¬max_lsn£¬read_count£¬program_countµÈÍ³¼ÆÐÅÏ¢µ½ÎÄ¼þoutputfileÖÐ¡£
-*3£¬´òÓ¡ÏàÍ¬µÄÐÅÏ¢µ½ÎÄ¼þstatisticfileÖÐ
+*statistic_output()函数主要是输出处理完一条请求后的相关处理信息。
+*1，计算出每个plane的擦除次数即plane_erase和总的擦除次数即erase
+*2，打印min_lsn，max_lsn，read_count，program_count等统计信息到文件outputfile中。
+*3，打印相同的信息到文件statisticfile中
 *******************************************************************************/
 void statistic_output(struct ssd_info *ssd)
 {
@@ -1136,11 +1134,11 @@ unsigned int transfer_size(struct ssd_info *ssd,int need_distribute,unsigned int
 
 /**********************************************************************************************************  
 *int64_t find_nearest_event(struct ssd_info *ssd)       
-*Ñ°ÕÒËùÓÐ×ÓÇëÇóµÄ×îÔçµ½´ïµÄÏÂ¸ö×´Ì¬Ê±¼ä,Ê×ÏÈ¿´ÇëÇóµÄÏÂÒ»¸ö×´Ì¬Ê±¼ä£¬Èç¹ûÇëÇóµÄÏÂ¸ö×´Ì¬Ê±¼äÐ¡ÓÚµÈÓÚµ±Ç°Ê±¼ä£¬
-*ËµÃ÷ÇëÇó±»×èÈû£¬ÐèÒª²é¿´channel»òÕß¶ÔÓ¦dieµÄÏÂÒ»×´Ì¬Ê±¼ä¡£Int64ÊÇÓÐ·ûºÅ 64 Î»ÕûÊýÊý¾ÝÀàÐÍ£¬ÖµÀàÐÍ±íÊ¾Öµ½éÓÚ
-*-2^63 ( -9,223,372,036,854,775,808)µ½2^63-1(+9,223,372,036,854,775,807 )Ö®¼äµÄÕûÊý¡£´æ´¢¿Õ¼äÕ¼ 8 ×Ö½Ú¡£
-*channel,dieÊÇÊÂ¼þÏòÇ°ÍÆ½øµÄ¹Ø¼üÒòËØ£¬ÈýÖÖÇé¿ö¿ÉÒÔÊ¹ÊÂ¼þ¼ÌÐøÏòÇ°ÍÆ½ø£¬channel£¬die·Ö±ð»Øµ½idle×´Ì¬£¬dieÖÐµÄ
-*¶ÁÊý¾Ý×¼±¸ºÃÁË
+*寻找所有子请求的最早到达的下个状态时间,首先看请求的下一个状态时间，如果请求的下个状态时间小于等于当前时间，
+*说明请求被阻塞，需要查看channel或者对应die的下一状态时间。Int64是有符号 64 位整数数据类型，值类型表示值介于
+*-2^63 ( -9,223,372,036,854,775,808)到2^63-1(+9,223,372,036,854,775,807 )之间的整数。存储空间占 8 字节。
+*channel,die是事件向前推进的关键因素，三种情况可以使事件继续向前推进，channel，die分别回到idle状态，die中的
+*读数据准备好了
 ***********************************************************************************************************/
 int64_t find_nearest_event(struct ssd_info *ssd) 
 {
@@ -1165,18 +1163,18 @@ int64_t find_nearest_event(struct ssd_info *ssd)
 	} 
 
 	/*****************************************************************************************************
-	 *timeÎªËùÓÐ A.ÏÂÒ»×´Ì¬ÎªCHANNEL_IDLEÇÒÏÂÒ»×´Ì¬Ô¤¼ÆÊ±¼ä´óÓÚssdµ±Ç°Ê±¼äµÄCHANNELµÄÏÂÒ»×´Ì¬Ô¤¼ÆÊ±¼ä
-	 *           B.ÏÂÒ»×´Ì¬ÎªCHIP_IDLEÇÒÏÂÒ»×´Ì¬Ô¤¼ÆÊ±¼ä´óÓÚssdµ±Ç°Ê±¼äµÄDIEµÄÏÂÒ»×´Ì¬Ô¤¼ÆÊ±¼ä
-	 *		     C.ÏÂÒ»×´Ì¬ÎªCHIP_DATA_TRANSFERÇÒÏÂÒ»×´Ì¬Ô¤¼ÆÊ±¼ä´óÓÚssdµ±Ç°Ê±¼äµÄDIEµÄÏÂÒ»×´Ì¬Ô¤¼ÆÊ±¼ä
-	 *CHIP_DATA_TRANSFER¶Á×¼±¸ºÃ×´Ì¬£¬Êý¾ÝÒÑ´Ó½éÖÊ´«µ½ÁËregister£¬ÏÂÒ»×´Ì¬ÊÇ´Óregister´«ÍùbufferÖÐµÄ×îÐ¡Öµ 
-	 *×¢Òâ¿ÉÄÜ¶¼Ã»ÓÐÂú×ãÒªÇóµÄtime£¬ÕâÊ±time·µ»Ø0x7fffffffffffffff ¡£
+	 *time为所有 A.下一状态为CHANNEL_IDLE且下一状态预计时间大于ssd当前时间的CHANNEL的下一状态预计时间
+	 *           B.下一状态为CHIP_IDLE且下一状态预计时间大于ssd当前时间的DIE的下一状态预计时间
+	 *		     C.下一状态为CHIP_DATA_TRANSFER且下一状态预计时间大于ssd当前时间的DIE的下一状态预计时间
+	 *CHIP_DATA_TRANSFER读准备好状态，数据已从介质传到了register，下一状态是从register传往buffer中的最小值 
+	 *注意可能都没有满足要求的time，这时time返回0x7fffffffffffffff 。
 	*****************************************************************************************************/
 	time=(time1>time2)?time2:time1;
 	return time;
 }
 
 /***********************************************
-*free_all_node()º¯ÊýµÄ×÷ÓÃ¾ÍÊÇÊÍ·ÅËùÓÐÉêÇëµÄ½Úµã
+*free_all_node()函数的作用就是释放所有申请的节点
 ************************************************/
 void free_all_node(struct ssd_info *ssd)
 {
@@ -1237,8 +1235,8 @@ void free_all_node(struct ssd_info *ssd)
 
 
 /*****************************************************************************
-*make_aged()º¯ÊýµÄ×÷ÓÃ¾ÍËÀÄ£ÄâÕæÊµµÄÓÃ¹ýÒ»¶ÎÊ±¼äµÄssd£¬
-*ÄÇÃ´Õâ¸össdµÄÏàÓ¦µÄ²ÎÊý¾ÍÒª¸Ä±ä£¬ËùÒÔÕâ¸öº¯ÊýÊµÖÊÉÏ¾ÍÊÇ¶ÔssdÖÐ¸÷¸ö²ÎÊýµÄ¸³Öµ¡£
+*make_aged()函数的作用就死模拟真实的用过一段时间的ssd，
+*那么这个ssd的相应的参数就要改变，所以这个函数实质上就是对ssd中各个参数的赋值。
 ******************************************************************************/
 	struct ssd_info *make_aged(struct ssd_info *ssd)
 	{
@@ -1267,7 +1265,7 @@ void free_all_node(struct ssd_info *ssd)
 			
 		if (ssd->parameter->aged==1)
 		{
-			//thresholdÂ±Ã­ÃŠÂ¾Ã’Â»Â¸Ã¶planeÃ–ÃÃ“ÃÂ¶Ã Ã‰Ã™Ã’Â³ÃÃ¨Ã’ÂªÃŒÃ¡Ã‡Â°Ã–ÃƒÃŽÂªÃŠÂ§ÃÂ§
+			//threshold表示一个plane中有多少页需要提前置为失效
 			threshould=(int)(ssd->parameter->block_plane*ssd->parameter->page_block*ssd->parameter->aged_ratio);  
 			threshould_block=(int)(ssd->parameter->page_block*ssd->parameter->aged_ratio);	
 			for (i=0;i<ssd->parameter->channel_number;i++)
@@ -1400,8 +1398,8 @@ void free_all_node(struct ssd_info *ssd)
 	}
 
 /*********************************************************************************************
-*no_buffer_distribute()º¯ÊýÊÇ´¦Àíµ±ssdÃ»ÓÐdramµÄÊ±ºò£¬
-*ÕâÊÇ¶ÁÐ´ÇëÇó¾Í²»±ØÔÙÐèÒªÔÚbufferÀïÃæÑ°ÕÒ£¬Ö±½ÓÀûÓÃcreat_sub_request()º¯Êý´´½¨×ÓÇëÇó£¬ÔÙ´¦Àí¡£
+*no_buffer_distribute()函数是处理当ssd没有dram的时候，
+*这是读写请求就不必再需要在buffer里面寻找，直接利用creat_sub_request()函数创建子请求，再处理。
 *********************************************************************************************/
 struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
 {
