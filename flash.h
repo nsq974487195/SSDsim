@@ -40,11 +40,11 @@ int go_one_step(struct ssd_info * ssd, struct sub_request * sub1,struct sub_requ
 
 int services_2_r_cmd_trans_and_complete(struct ssd_info * ssd);
 
-int services_2_r_wait(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag, unsigned int * change_current_time_flag);
+int services_2_r_wait(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag);
 
-int services_2_r_data_trans(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag, unsigned int * change_current_time_flag);
+int services_2_r_data_trans(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag);
 
-int services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag, unsigned int * change_current_time_flag);
+int services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag);
 
 int delete_w_sub_request(struct ssd_info * ssd, unsigned int channel, struct sub_request * sub );
 

@@ -877,7 +877,7 @@ struct sub_request * find_write_sub_request(struct ssd_info * ssd, unsigned int 
 
 /*********************************************************************************************
 *专门为读子请求服务的函数
-*1，只有当读子请求的当前状态是SR_R_C_A_TRANSFER
+*1，只有当读子请求的当前状态是SR_R_C_A_TRANSFER, chip内部数据传输,channel不影响
 *2，读子请求的当前状态是SR_COMPLETE或者下一状态是SR_COMPLETE并且下一状态到达的时间比当前时间小
 **********************************************************************************************/
 Status services_2_r_cmd_trans_and_complete(struct ssd_info * ssd)
@@ -888,6 +888,7 @@ Status services_2_r_cmd_trans_and_complete(struct ssd_info * ssd)
 	for(i=0;i<ssd->parameter->channel_number;i++)                                      
 	{
 		sub=ssd->channel_head[i].subs_r_head;
+		p=sub; //防止第一次有读请求完成, p为空的现象出现
 
 		while(sub!=NULL)
 		{/*读命令发送完毕，将对应的die置为busy，同时修改sub的状态; 这个部分专门处理读请求由当前状态为传命令变为die开始busy，die开始busy不需要channel为空，所以单独列出*/
@@ -897,19 +898,18 @@ Status services_2_r_cmd_trans_and_complete(struct ssd_info * ssd)
 				{
 					/*状态跳变处理函数*/
 					go_one_step(ssd, sub,NULL, SR_R_READ,NORMAL);                      
-
 				}
 			}
 			else if((sub->current_state==SR_COMPLETE)||((sub->next_state==SR_COMPLETE)&&(sub->next_state_predict_time<=ssd->current_time)))					
 			{			
-				if(sub!=ssd->channel_head[i].subs_r_head)                             /*if the request is completed, we delete it from read queue */							
+				if(sub!=ssd->channel_head[i].subs_r_head) /*if the request is completed, we delete it from read queue */							
 				{		
 					p->next_node=sub->next_node;						
 				}			
 				else					
 				{	
-					if (ssd->channel_head[i].subs_r_head!=ssd->channel_head[i].subs_r_tail)
-					{
+					if (ssd->channel_head[i].subs_r_head!=ssd->channel_head[i].subs_r_tail){
+						
 						ssd->channel_head[i].subs_r_head=sub->next_node;
 					} 
 					else
@@ -917,8 +917,7 @@ Status services_2_r_cmd_trans_and_complete(struct ssd_info * ssd)
 						ssd->channel_head[i].subs_r_head=NULL;
 						ssd->channel_head[i].subs_r_tail=NULL;
 					}							
-				}
-				printf("%s %d\n","test",ssd->current_time );			
+				}		
 			}
 			p=sub;
 			sub=sub->next_node;
@@ -932,7 +931,7 @@ Status services_2_r_cmd_trans_and_complete(struct ssd_info * ssd)
 *这个函数也是只处理读子请求，处理chip当前状态是CHIP_WAIT，
 *或者下一个状态是CHIP_DATA_TRANSFER并且下一状态的预计时间小于当前时间的chip
 ***************************************************************************/
-Status services_2_r_data_trans(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag, unsigned int * change_current_time_flag)
+Status services_2_r_data_trans(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag)
 {
 	int chip=0;
 	unsigned int die=0,plane=0,address_ppn=0,die1=0;
@@ -941,114 +940,31 @@ Status services_2_r_data_trans(struct ssd_info * ssd,unsigned int channel,unsign
 	struct sub_request * sub_interleave_one=NULL, * sub_interleave_two=NULL;
 	for(chip=0;chip<ssd->channel_head[channel].chip;chip++)           			    
 	{				       		      
-			if((ssd->channel_head[channel].chip_head[chip].current_state==CHIP_WAIT)||((ssd->channel_head[channel].chip_head[chip].next_state==CHIP_DATA_TRANSFER)&&
-				(ssd->channel_head[channel].chip_head[chip].next_state_predict_time<=ssd->current_time)))					       					
-			{
-				for(die=0;die<ssd->parameter->die_chip;die++)
-				{
-					 /*在channel,chip,die中找到读子请求*/
-					sub=find_read_sub_request(ssd,channel,chip,die);                   
-					if(sub!=NULL)
-					{
-						break;
-					}
-				}
-
-				if(sub==NULL)
-				{
-					continue;
-				}
-				
-				/**************************************************************************************
-				*如果ssd支持高级命令，那没我们可以一起处理支持AD_TWOPLANE_READ，AD_INTERLEAVE的读子请求
-				*1，有可能产生了two plane操作，在这种情况下，将同一个die上的两个plane的数据依次传出
-				*2，有可能产生了interleave操作，在这种情况下，将不同die上的两个plane的数据依次传出
-				***************************************************************************************/
-				if(((ssd->parameter->advanced_commands&AD_TWOPLANE_READ)==AD_TWOPLANE_READ)||((ssd->parameter->advanced_commands&AD_INTERLEAVE)==AD_INTERLEAVE))
-				{
-					 /*有可能产生了two plane操作，在这种情况下，将同一个die上的两个plane的数据依次传出*/
-					if ((ssd->parameter->advanced_commands&AD_TWOPLANE_READ)==AD_TWOPLANE_READ)    
-					{
-						sub_twoplane_one=sub;
-						sub_twoplane_two=NULL;                                                      
-						/*为了保证找到的sub_twoplane_two与sub_twoplane_one不同，令add_reg_ppn=-1*/                                                                          
-						ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[sub->location->plane].add_reg_ppn=-1;
-						/*在相同的channel,chip,die中寻找另外一个读子请求*/
-						sub_twoplane_two=find_read_sub_request(ssd,channel,chip,die);               
-						
-						/******************************************************
-						*如果找到了那么就执行TWO_PLANE的状态转换函数go_one_step
-						*如果没找到那么就执行普通命令的状态转换函数go_one_step
-						******************************************************/
-						if (sub_twoplane_two==NULL)
-						{
-							go_one_step(ssd, sub_twoplane_one,NULL, SR_R_DATA_TRANSFER,NORMAL);   
-							*change_current_time_flag=0;   
-							*channel_busy_flag=1;
-
-						}
-						else
-						{
-							go_one_step(ssd, sub_twoplane_one,sub_twoplane_two, SR_R_DATA_TRANSFER,TWO_PLANE);
-							*change_current_time_flag=0;  
-							*channel_busy_flag=1;
-
-						}
-					} 
-					/*有可能产生了interleave操作，在这种情况下，将不同die上的两个plane的数据依次传出*/
-					else if ((ssd->parameter->advanced_commands&AD_INTERLEAVE)==AD_INTERLEAVE)      
-					{
-						sub_interleave_one=sub;
-						sub_interleave_two=NULL;
-						ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[sub->location->plane].add_reg_ppn=-1;
-						
-						for(die1=0;die1<ssd->parameter->die_chip;die1++)
-						{	
-							if(die1!=die)
-							{	/*在相同的channel，chhip不同的die上面找另外一个读子请求*/
-								sub_interleave_two=find_read_sub_request(ssd,channel,chip,die1);    
-								if(sub_interleave_two!=NULL)
-								{
-									break;
-								}
-							}
-						}	
-						if (sub_interleave_two==NULL)
-						{
-							go_one_step(ssd, sub_interleave_one,NULL, SR_R_DATA_TRANSFER,NORMAL);
-
-							*change_current_time_flag=0;  
-							*channel_busy_flag=1;
-
-						}
-						else
-						{
-							go_one_step(ssd, sub_twoplane_one,sub_interleave_two, SR_R_DATA_TRANSFER,INTERLEAVE);
-												
-							*change_current_time_flag=0;   
-							*channel_busy_flag=1;
-							
-						}
-					}
-				}
-				else                                                                                 
-				{
-					/*如果ssd不支持高级命令那么就执行一个一个的执行读子请求*/					
-					go_one_step(ssd, sub,NULL, SR_R_DATA_TRANSFER,NORMAL);
-					*change_current_time_flag=0;  
-					*channel_busy_flag=1;
-					
-				}
-				break;
-			}		
-			
-		if(*channel_busy_flag==1)
+		if((ssd->channel_head[channel].chip_head[chip].current_state==CHIP_WAIT)||((ssd->channel_head[channel].chip_head[chip].next_state==CHIP_DATA_TRANSFER)&&
+			(ssd->channel_head[channel].chip_head[chip].next_state_predict_time<=ssd->current_time)))					       					
 		{
+			for(die=0;die<ssd->parameter->die_chip;die++)
+			{
+				/*在channel,chip,die中找到读子请求*/
+				sub=find_read_sub_request(ssd,channel,chip,die);                   
+				if(sub!=NULL)
+				{
+					break;
+				}
+			}
 
+			if(sub==NULL)
+			{
+				continue;
+			}
+			
+			/*如果ssd不支持高级命令那么就执行一个一个的执行读子请求*/					
+			go_one_step(ssd, sub,NULL, SR_R_DATA_TRANSFER,NORMAL);
+
+			*channel_busy_flag=1;	
 			break;
-		}
+		}		
 	}
-
 	return SUCCESS;
 }
 
@@ -1056,121 +972,33 @@ Status services_2_r_data_trans(struct ssd_info * ssd,unsigned int channel,unsign
 /******************************************************
 *这个函数也是只服务读子请求，并且处于等待状态的读子请求
 *******************************************************/
-int services_2_r_wait(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag, unsigned int * change_current_time_flag)
+int services_2_r_wait(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag)
 {
 	unsigned int plane=0,address_ppn=0;
 	struct sub_request * sub=NULL, * p=NULL;
 	struct sub_request * sub_twoplane_one=NULL, * sub_twoplane_two=NULL;
 	struct sub_request * sub_interleave_one=NULL, * sub_interleave_two=NULL;
 	
-	
 	sub=ssd->channel_head[channel].subs_r_head;
-
-	
-	if ((ssd->parameter->advanced_commands&AD_TWOPLANE_READ)==AD_TWOPLANE_READ)         /*to find whether there are two sub request can be served by two plane operation*/
-	{
-		sub_twoplane_one=NULL;
-		sub_twoplane_two=NULL;                                                         
-		/*寻找能执行two_plane的两个读子请求*/                                                                              
-		find_interleave_twoplane_sub_request(ssd,channel,sub_twoplane_one,sub_twoplane_two,TWO_PLANE);
-		/*可以执行two plane read 操作*/
-		if (sub_twoplane_two!=NULL)                                                    
-		{
-			go_one_step(ssd, sub_twoplane_one,sub_twoplane_two, SR_R_C_A_TRANSFER,TWO_PLANE);
-						
-			*change_current_time_flag=0;
-			*channel_busy_flag=1; /*已经占用了这个周期的总线，不用执行die中数据的回传*/                                                     
-		} 
-		else if((ssd->parameter->advanced_commands&AD_INTERLEAVE)!=AD_INTERLEAVE)       /*没有满足条件的两个page，，并且没有interleave read命令时，只能执行单个page的读*/
-		{
-			while(sub!=NULL)                                                            /*if there are read requests in queue, send one of them to target die*/			
-			{		
-				if(sub->current_state==SR_WAIT)									
-				{/*注意下个这个判断条件与services_2_r_data_trans中判断条件的不同*/
-					if((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].current_state==CHIP_IDLE)||((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state==CHIP_IDLE)&&
-						(ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state_predict_time<=ssd->current_time)))												
-					{	
-						go_one_step(ssd, sub,NULL, SR_R_C_A_TRANSFER,NORMAL);
-									
-						*change_current_time_flag=0;
-						*channel_busy_flag=1;                                           /*已经占用了这个周期的总线，不用执行die中数据的回传*/
-						break;										
-					}	
-					else
-					{
-						                                                                /*因为die的busy导致的阻塞*/
-					}
-				}						
-				sub=sub->next_node;								
-			}
-		}
-	} 
-	if ((ssd->parameter->advanced_commands&AD_INTERLEAVE)==AD_INTERLEAVE)               /*to find whether there are two sub request can be served by INTERLEAVE operation*/
-	{
-		sub_interleave_one=NULL;
-		sub_interleave_two=NULL;
-		find_interleave_twoplane_sub_request(ssd,channel,sub_interleave_one,sub_interleave_two,INTERLEAVE);
-		
-		if (sub_interleave_two!=NULL)                                                  /*可以执行interleave read 操作*/
-		{
-
-			go_one_step(ssd, sub_interleave_one,sub_interleave_two, SR_R_C_A_TRANSFER,INTERLEAVE);
-						
-			*change_current_time_flag=0;
-			*channel_busy_flag=1;                                                       /*已经占用了这个周期的总线，不用执行die中数据的回传*/
-		} 
-		else                                                                           /*没有满足条件的两个page，只能执行单个page的读*/
-		{
-			while(sub!=NULL)                                                           /*if there are read requests in queue, send one of them to target die*/			
-			{		
-				if(sub->current_state==SR_WAIT)									
-				{	
-					if((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].current_state==CHIP_IDLE)||((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state==CHIP_IDLE)&&
-						(ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state_predict_time<=ssd->current_time)))												
-					{	
-
-						go_one_step(ssd, sub,NULL, SR_R_C_A_TRANSFER,NORMAL);
-									
-						*change_current_time_flag=0;
-						*channel_busy_flag=1;                                          /*已经占用了这个周期的总线，不用执行die中数据的回传*/
-						break;										
-					}	
-					else
-					{
-						                                                               /*因为die的busy导致的阻塞*/
-					}
-				}						
-				sub=sub->next_node;								
-			}
-		}
-	}
 
 	/*******************************
 	*ssd不能执行执行高级命令的情况下
 	*******************************/
-	if (((ssd->parameter->advanced_commands&AD_INTERLEAVE)!=AD_INTERLEAVE)&&((ssd->parameter->advanced_commands&AD_TWOPLANE_READ)!=AD_TWOPLANE_READ))
-	{
-		while(sub!=NULL)                                                               /*if there are read requests in queue, send one of them to target chip*/			
-		{		
-			if(sub->current_state==SR_WAIT)									
-			{	                                                                       
-				if((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].current_state==CHIP_IDLE)||((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state==CHIP_IDLE)&&
-					(ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state_predict_time<=ssd->current_time)))												
-				{	
 
-					go_one_step(ssd, sub,NULL, SR_R_C_A_TRANSFER,NORMAL);
-							
-					*change_current_time_flag=0;
-					*channel_busy_flag=1;                                              /*已经占用了这个周期的总线，不用执行die中数据的回传*/
-					break;										
-				}	
-				else
-				{
-					                                                                   /*因为die的busy导致的阻塞*/
-				}
-			}						
-			sub=sub->next_node;								
-		}
+	while(sub!=NULL)  /*if there are read requests in queue, send one of them to target chip*/			
+	{		
+		if(sub->current_state==SR_WAIT)									
+		{	                                                                       
+			if((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].current_state==CHIP_IDLE)||((ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state==CHIP_IDLE)&&
+				(ssd->channel_head[sub->location->channel].chip_head[sub->location->chip].next_state_predict_time<=ssd->current_time)))												
+			{	
+				go_one_step(ssd, sub,NULL, SR_R_C_A_TRANSFER,NORMAL);
+
+				*channel_busy_flag=1;        /*已经占用了这个周期的总线，不用执行die中数据的回传*/
+				break;										
+			}	
+		}						
+		sub=sub->next_node;								
 	}
 
 	return SUCCESS;
@@ -1225,15 +1053,11 @@ Status static_write(struct ssd_info * ssd, unsigned int channel,unsigned int chi
 	long long time=0;
 	get_ppn(ssd,sub->location->channel,sub->location->chip,sub->location->die,sub->location->plane,sub); // µÃµ½ ppn µÃµ½pageÀàÐÍ
 
-	
-
-	
 	ssd->parameter->time_characteristics.tPROG = page_program_time(ssd, sub->location->page);
 
 	sub->next_state_predict_time=ssd->current_time+7*ssd->parameter->time_characteristics.tWC+(sub->size*ssd->parameter->subpage_capacity)*ssd->parameter->time_characteristics.tWC + ssd->parameter->time_characteristics.tPROG;
 
 	sub->complete_time=sub->next_state_predict_time;		
-
 
     /****************************************************************
 	*执行copyback高级命令时，需要修改channel，chip的状态，以及时间等
@@ -1257,7 +1081,6 @@ Status static_delete(struct ssd_info * ssd, unsigned int channel,unsigned int ch
 {
 	
 	// 分别读取lpn所对应的ppn的地址,计算读取和迁移的延迟时间
-	// 
 
 	long long time=0;
 
@@ -1268,11 +1091,6 @@ Status static_delete(struct ssd_info * ssd, unsigned int channel,unsigned int ch
 	struct local *location=NULL, *pair_location=NULL, *upper_left_location=NULL, *upper_right_location=NULL, *below_left_location=NULL, *below_right_location=NULL;
 
 	location = sub->location;
-
-
-	
-
-
 
 	//判断上下page是否有效
 	for (int i = 1; i < 4; ++i)
@@ -1286,7 +1104,6 @@ Status static_delete(struct ssd_info * ssd, unsigned int channel,unsigned int ch
 			count++;
 		}
 	}
-	
 
 	ssd->live_copy = ssd->live_copy + count;
 	//count = count /3 +1;
@@ -1310,8 +1127,6 @@ Status static_delete(struct ssd_info * ssd, unsigned int channel,unsigned int ch
 	sub->next_state_predict_time = ssd->current_time+  program_time + count*program_time;
 	
 	sub->complete_time = sub->next_state_predict_time;	
-
-
 
     /****************************************************************
 	 channel chip 的下一步的时间计算
@@ -1369,7 +1184,7 @@ int delete_del_sub_request(struct ssd_info * ssd, unsigned int channel, struct s
 
 
 
-Status services_2_delete(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag, unsigned int * change_current_time_flag){
+Status services_2_delete(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag){
 
 	int chip=0;
 	struct sub_request * sub=NULL;
@@ -1380,8 +1195,7 @@ Status services_2_delete(struct ssd_info * ssd,unsigned int channel,unsigned int
 	}
 	if (*channel_busy_flag==0)
 	{
-		                                                            
-
+		                                                           
 		sub=ssd->channel_head[channel].subs_d_head;
 		
 		while (sub!=NULL)
@@ -1405,26 +1219,20 @@ Status services_2_delete(struct ssd_info * ssd,unsigned int channel,unsigned int
 			sub->current_state=SR_D_TRANSFER;
 			sub->next_state=SR_COMPLETE;
 
-
 			static_delete(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);   
 			*change_current_time_flag=0;
-			
-			
+					
 			delete_del_sub_request(ssd,channel,sub);
 			*channel_busy_flag=1;
-			//break;
-		}
-			
-		
+		}		
 	} 
-
 }
 
 
 /********************
 写子请求的处理函数
 *********************/
-Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag, unsigned int * change_current_time_flag)
+Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int * channel_busy_flag)
 {
 	int j=0,chip=0;
 	unsigned int k=0;
@@ -1477,7 +1285,7 @@ Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int 
 
 									ssd->channel_head[channel].chip_head[chip_token].die_head[die_token].token=(ssd->channel_head[channel].chip_head[chip_token].die_head[die_token].token+1)%ssd->parameter->plane_die;
 
-									*change_current_time_flag=0;
+									
 
 									if(ssd->parameter->ad_priority2==0)
 									{
@@ -1568,12 +1376,12 @@ Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int 
 										if ((ssd->parameter->advanced_commands&AD_COPYBACK)==AD_COPYBACK)
 										{
 											copy_back(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);      /*Èç¹û¿ÉÒÔÖ´ÐÐcopyback¸ß¼¶ÃüÁî£¬ÄÇÃ´¾ÍÓÃº¯Êýcopy_back(ssd, channel,chip, die,sub)´¦ÀíÐ´×ÓÇëÇó*/
-											*change_current_time_flag=0;
+											
 										} 
 										else
 										{
 											static_write(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);   /*²»ÄÜÖ´ÐÐcopyback¸ß¼¶ÃüÁî£¬ÄÇÃ´¾ÍÓÃstatic_write(ssd, channel,chip, die,sub)º¯ÊýÀ´´¦ÀíÐ´×ÓÇëÇó*/ 
-											*change_current_time_flag=0;
+											
 										}
 										
 										delete_w_sub_request(ssd,channel,sub);
@@ -1688,12 +1496,6 @@ struct ssd_info *process(struct ssd_info *ssd)
 					continue;
 				}
 			}
-
-
-
-	
-
-
 
 			//sub=ssd->channel_head[i].subs_r_head;               /*先处理读请求*/
 			services_2_r_wait(ssd,i,&flag,&chg_cur_time_flag);    /*处理处于等待状态的读子请求*/
@@ -1831,9 +1633,6 @@ struct ssd_info *delete_from_channel(struct ssd_info *ssd,unsigned int channel,s
 
 	return ssd;
 }
-
-
-
 
 
 /**************************************************************************
