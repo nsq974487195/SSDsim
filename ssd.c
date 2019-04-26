@@ -16,11 +16,9 @@ Chao Ren        2011/07/01        2.0           Change               529517386@q
 Hao Luo         2011/01/01        2.0           Change               luohao135680@gmail.com
 *****************************************************************************************************************************/
 
- 
+
 
 #include "ssd.h"
-
-
 
 /********************************************************************************************************************************
 1，main函数中initiatio()函数用来初始化ssd,；2，make_aged()函数使SSD成为aged，aged的ssd相当于使用过一段时间的ssd，里面有失效页，
@@ -1284,22 +1282,22 @@ void free_all_node(struct ssd_info *ssd)
 							
 							for (m=0;m<ssd->parameter->block_plane;m++)
 							{  
-								if (flag>threshould)	//flag æ— æ•ˆä¸ªæ•°ï¼Œè‹¥å½“å‰æ— æ•ˆä¸ªæ•°å¤§äºŽç­‰äºŽé˜ˆå€¼ï¼Œåˆ™ä¸å†è¿›è¡Œwarm up
+								if (flag>threshould)	//
 								{
 									break;
 								}
 								for (n=0;n<ssd->parameter->page_block;n++)
 								{  
 									rand_value = rand()%10;
-									valid_tag = ((rand_value>2)? 1 : 0);	//0 for invalid   1 for valid	70% æœ‰æ•ˆ 30%æ— æ•ˆæ•°æ®
+									valid_tag = ((rand_value>2)? 1 : 0);	//0 for invalid   1 for valid	70%  30%
 									
 									
 									if((valid_tag == 0) /*&& (invalid_num< (0.2*threshould+ 1)))||(valid_num >0.8*threshould)*/)
 									{
 										
-										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].page_head[n].valid_state=0; 	   //Â±Ã­ÃŠÂ¾Ã„Â³Ã’Â»Ã’Â³ÃŠÂ§ÃÂ§Â£Â¬ÃÂ¬ÃŠÂ±Â±ÃªÂ¼Ã‡validÂºÃfreeÃ—Â´ÃŒÂ¬Â¶Â¼ÃŽÂª0
-										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].page_head[n].free_state=0;		   //Â±Ã­ÃŠÂ¾Ã„Â³Ã’Â»Ã’Â³ÃŠÂ§ÃÂ§Â£Â¬ÃÂ¬ÃŠÂ±Â±ÃªÂ¼Ã‡validÂºÃfreeÃ—Â´ÃŒÂ¬Â¶Â¼ÃŽÂª0
-										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].page_head[n].lpn=0;  //Â°Ã‘valid_state free_state lpnÂ¶Â¼Ã–ÃƒÃŽÂª0Â±Ã­ÃŠÂ¾Ã’Â³ÃŠÂ§ÃÂ§Â£Â¬Â¼Ã¬Â²Ã¢ÂµÃ„ÃŠÂ±ÂºÃ²ÃˆÃ½ÃÃ®Â¶Â¼Â¼Ã¬Â²Ã¢Â£Â¬ÂµÂ¥Â¶Ã€lpn=0Â¿Ã‰Ã’Ã”ÃŠÃ‡Ã“ÃÃÂ§Ã’Â³
+										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].page_head[n].valid_state=0; 	   
+										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].page_head[n].free_state=0;		   
+										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].page_head[n].lpn=0;  
 										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].free_page_num--;
 										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].invalid_page_num++;
 										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].last_write_page++;
@@ -1312,7 +1310,7 @@ void free_all_node(struct ssd_info *ssd)
 									else
 									{
 										
-										lpn = count;	//é¡ºåºäº§ç”Ÿè¿žç»­lpnï¼Œä»…å¯¹æœ‰æ•ˆæ•°æ®è¿›è¡Œlpné€’å¢ž
+										lpn = count;	
 										count++;
 										lsn = lpn * ssd->parameter->subpage_page;
 										lsn=lsn%largest_lsn;  
@@ -1330,7 +1328,7 @@ void free_all_node(struct ssd_info *ssd)
 										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].free_page_num--;
 										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].blk_head[m].last_write_page++;
 										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].free_page--;
-										flag++; //æ— æ•ˆä¸ªæ•°
+										flag++; 
 										valid_num++;
 	
 									}
@@ -1467,7 +1465,7 @@ struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
 
 		ssd->delete_count=0;
 
-		create_del_request(ssd);
+		//create_del_request(ssd);
 	
 	}else{
 
@@ -1553,32 +1551,7 @@ int	create_del_request(struct ssd_info *ssd){
 
 
 
-int possion()  /* 产生一个泊松分布的随机数，Lamda为总体平均数*/
-{
-	int Lambda = 100, k = 0;
-	long double p = 1.0;
-	long double l=exp(-Lambda);  /* 为了精度，才定义为long double的，exp(-Lambda)是接近0的小数*/
-	while (p>=l)
-	{
-		double u = U_Random();
-		p *= u;
-		k++;
-	}
-	return k-1;
-}
 
-double U_Random()  /* 产生一个0~1之间的随机数 */
-{
-	static int done = 0;
-	int number;
-	if(!done)  /*srand种子只产生一次*/
-	{  
-		srand((int)time(0));
-		done = 1;
-	}
-	number=1+(int)(100.0*rand()/(RAND_MAX+1.0));
-	return number/100.0;
-}
 
 
 

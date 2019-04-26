@@ -53,11 +53,11 @@ int page_program_time(struct ssd_info *ssd, unsigned int page_loc)
 
 	page_type_tlc = page_type(ssd,page_loc);
 
-	if(page_type_tlc == 1) tlc_time = ssd->parameter->time_characteristics.pLSB;
+	if(page_type_tlc == 1) tlc_time = ssd->parameter->time_characteristics.tpLSB;
 
-	else if(page_type_tlc == 2 ) tlc_time = ssd->parameter->time_characteristics.pCSB;
+	else if(page_type_tlc == 2 ) tlc_time = ssd->parameter->time_characteristics.tpCSB;
 
-	else if(page_type_tlc == 3)  tlc_time = ssd->parameter->time_characteristics.pMSB;
+	else if(page_type_tlc == 3)  tlc_time = ssd->parameter->time_characteristics.tpMSB;
 
 	if(tlc_time == 0){
 
@@ -69,7 +69,7 @@ int page_program_time(struct ssd_info *ssd, unsigned int page_loc)
 
 
 
-int page_read_time(struct ssd_info *ssd, unsigned int page_loc, int pv=0)
+int page_read_time(struct ssd_info *ssd, unsigned int page_loc, int pv)
 {
 	int tlc_time=0;
 
@@ -77,11 +77,11 @@ int page_read_time(struct ssd_info *ssd, unsigned int page_loc, int pv=0)
 
 	page_type_tlc = page_type(ssd,page_loc);
 
-	if(page_type_tlc == 1)  tlc_time = ssd->parameter->time_characteristics.rLSB;
+	if(page_type_tlc == 1)  tlc_time = ssd->parameter->time_characteristics.trLSB;
 
-	else if(page_type_tlc == 2 )  tlc_time = ssd->parameter->time_characteristics.rCSB;
+	else if(page_type_tlc == 2 )  tlc_time = ssd->parameter->time_characteristics.trCSB;
 
-	else if(page_type_tlc == 3)  tlc_time = ssd->parameter->time_characteristics.rMSB;
+	else if(page_type_tlc == 3)  tlc_time = ssd->parameter->time_characteristics.trMSB;
 
 	if(tlc_time == 0){
 
@@ -323,7 +323,7 @@ struct local *init_location(struct ssd_info *ssd,unsigned int lpn)
 	chip_num=ssd->parameter->chip_channel[0];
 	die_num=ssd->parameter->die_chip;
 	plane_num=ssd->parameter->plane_die;
-	lpn=lsn/ssd->parameter->subpage_page;
+	
 
 	if (ssd->parameter->allocation_scheme==0)                           /*动态方式下获取ppn*/
 	{
@@ -438,7 +438,7 @@ unsigned int get_ppn_for_pre_process(struct ssd_info *ssd,unsigned int lsn)
 	location = init_location(ssd,lpn); //不同的分配方法计算出lpn的初始地址, block和page的地址由find_active_block_SD()地址计算函数完成
     
 	//根据上述分配方法找到channel，chip，die，plane后，再在这个里面找到active_block *接着获得ppn
-	if(find_active_block_SD(ssd,location)==FAILURE)  
+	if(find_active_block_SD(ssd,location,NULL)==FAILURE)  
 	{
 		printf("the read operation is expand the capacity of SSD\n");
 		
@@ -489,7 +489,7 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 	*利用函数find_active_block在channel，chip，die，plane找到活跃block
 	*并且修改这个channel，chip，die，plane，active_block下的last_write_page和free_page_num
 	**************************************************************************************/
-	if(find_active_block_SD(ssd,sub->location)==FAILURE)                      
+	if(find_active_block_SD(ssd,sub->location,sub)==FAILURE)                      
 	{
 		printf("ERROR :there is no free page in channel:%d, chip:%d, die:%d, plane:%d\n",channel,chip,die,plane);
 		printf("caused by static allocation_scheme, could be redirection to another location(channel,chip,die,plane)\n");	
@@ -610,7 +610,6 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 	return ssd;
 }
 
-
 /*****************************************************************************************
 *这个函数功能是为gc操作寻找新的ppn，因为在gc操作中需要找到新的物理块存放原来物理块上的数据
 *在gc中寻找新物理块的函数，不会引起循环的gc操作
@@ -619,12 +618,13 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 {
 	unsigned int ppn;
 	unsigned int active_block,block,page;
+	struct local *location=NULL;
 
 #ifdef DEBUG
 	printf("enter get_ppn_for_gc,channel:%d, chip:%d, die:%d, plane:%d\n",channel,chip,die,plane);
 #endif
 
-	if(find_active_block(ssd,channel,chip,die,plane)!=SUCCESS)
+	if(find_active_block(ssd,channel,chip,die,plane,4,location)!=SUCCESS)
 	{
 		printf("\n\n Error int get_ppn_for_gc().\n");
 		return 0xffffffff;
@@ -720,118 +720,16 @@ Status erase_planes(struct ssd_info * ssd, unsigned int channel, unsigned int ch
 	ssd->channel_head[channel].chip_head[chip].current_time=ssd->current_time;									
 	ssd->channel_head[channel].chip_head[chip].next_state=CHIP_IDLE;
 
-	if(command==INTERLEAVE_TWO_PLANE)                                       /*高级命令INTERLEAVE_TWO_PLANE的处理*/
-	{
-		for(die=0;die<ssd->parameter->die_chip;die++)
-		{
-			block0=0xffffffff;
-			if(die==die1)
-			{
-				block0=block1;
-			}
-			for (plane=0;plane<ssd->parameter->plane_die;plane++)
-			{
-				direct_erase_node=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].erase_node;
-				if(direct_erase_node!=NULL)
-				{
-					
-					block=direct_erase_node->block; 
-					
-					if(block0==0xffffffff)
-					{
-						block0=block;
-					}
-					else
-					{
-						if(block!=block0)
-						{
-							continue;
-						}
+	direct_erase_node=ssd->channel_head[channel].chip_head[chip].die_head[die1].plane_head[plane1].erase_node;
+	block=direct_erase_node->block;
+	ssd->channel_head[channel].chip_head[chip].die_head[die1].plane_head[plane1].erase_node=direct_erase_node->next_node;
+	free(direct_erase_node);
+	direct_erase_node=NULL;
+	erase_operation(ssd,channel,chip,die1,plane1,block);
 
-					}
-					ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].erase_node=direct_erase_node->next_node;
-					erase_operation(ssd,channel,chip,die,plane,block);     /*ÕæÊµµÄ²Á³ý²Ù×÷µÄ´¦Àí*/
-					free(direct_erase_node);                               
-					direct_erase_node=NULL;
-					ssd->direct_erase_count++;
-				}
-
-			}
-		}
-
-		ssd->interleave_mplane_erase_count++;                             /*·¢ËÍÁËÒ»¸öinterleave two plane eraseÃüÁî,²¢¼ÆËãÕâ¸ö´¦ÀíµÄÊ±¼ä£¬ÒÔ¼°ÏÂÒ»¸ö×´Ì¬µÄÊ±¼ä*/
-		ssd->channel_head[channel].next_state_predict_time=ssd->current_time+18*ssd->parameter->time_characteristics.tWC+ssd->parameter->time_characteristics.tWB;       
-		ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time-9*ssd->parameter->time_characteristics.tWC+ssd->parameter->time_characteristics.tBERS;
-
-	}
-	else if(command==INTERLEAVE)                                          /*¸ß¼¶ÃüÁîINTERLEAVEµÄ´¦Àí*/
-	{
-		for(die=0;die<ssd->parameter->die_chip;die++)
-		{
-			for (plane=0;plane<ssd->parameter->plane_die;plane++)
-			{
-				if(die==die1)
-				{
-					plane=plane1;
-				}
-				direct_erase_node=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].erase_node;
-				if(direct_erase_node!=NULL)
-				{
-					block=direct_erase_node->block;
-					ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].erase_node=direct_erase_node->next_node;
-					erase_operation(ssd,channel,chip,die,plane,block);
-					free(direct_erase_node);
-					direct_erase_node=NULL;
-					ssd->direct_erase_count++;
-					break;
-				}	
-			}
-		}
-		ssd->interleave_erase_count++;
-		ssd->channel_head[channel].next_state_predict_time=ssd->current_time+14*ssd->parameter->time_characteristics.tWC;       
-		ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time+ssd->parameter->time_characteristics.tBERS;
-	}
-	else if(command==TWO_PLANE)                                          /*¸ß¼¶ÃüÁîTWO_PLANEµÄ´¦Àí*/
-	{
-
-		for(plane=0;plane<ssd->parameter->plane_die;plane++)
-		{
-			direct_erase_node=ssd->channel_head[channel].chip_head[chip].die_head[die1].plane_head[plane].erase_node;
-			if((direct_erase_node!=NULL))
-			{
-				block=direct_erase_node->block;
-				if(block==block1)
-				{
-					ssd->channel_head[channel].chip_head[chip].die_head[die1].plane_head[plane].erase_node=direct_erase_node->next_node;
-					erase_operation(ssd,channel,chip,die1,plane,block);
-					free(direct_erase_node);
-					direct_erase_node=NULL;
-					ssd->direct_erase_count++;
-				}
-			}
-		}
-
-		ssd->mplane_erase_conut++;
-		ssd->channel_head[channel].next_state_predict_time=ssd->current_time+14*ssd->parameter->time_characteristics.tWC;      
-		ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time+ssd->parameter->time_characteristics.tBERS;
-	}
-	else if(command==NORMAL)                                             /*ÆÕÍ¨ÃüÁîNORMALµÄ´¦Àí*/
-	{
-		direct_erase_node=ssd->channel_head[channel].chip_head[chip].die_head[die1].plane_head[plane1].erase_node;
-		block=direct_erase_node->block;
-		ssd->channel_head[channel].chip_head[chip].die_head[die1].plane_head[plane1].erase_node=direct_erase_node->next_node;
-		free(direct_erase_node);
-		direct_erase_node=NULL;
-		erase_operation(ssd,channel,chip,die1,plane1,block);
-
-		ssd->direct_erase_count++;
-		ssd->channel_head[channel].next_state_predict_time=ssd->current_time+5*ssd->parameter->time_characteristics.tWC;       								
-		ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time+ssd->parameter->time_characteristics.tWB+ssd->parameter->time_characteristics.tBERS;	
-	}
-	else
-	{
-		return ERROR;
-	}
+	ssd->direct_erase_count++;
+	ssd->channel_head[channel].next_state_predict_time=ssd->current_time+5*ssd->parameter->time_characteristics.tWC;       								
+	ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time+ssd->parameter->time_characteristics.tWB+ssd->parameter->time_characteristics.tBERS;	
 
 	direct_erase_node=ssd->channel_head[channel].chip_head[chip].die_head[die1].plane_head[plane1].erase_node;
 
@@ -872,79 +770,6 @@ int gc_direct_erase(struct ssd_info *ssd,unsigned int channel,unsigned int chip,
 		return FAILURE;
 	}
     
-	/********************************************************************************************************
-	*当能处理TWOPLANE高级命令时，就在相应的channel，chip，die中两个不同的plane找到可以执行TWOPLANE操作的block
-	*并置muilt_plane_flag为TRUE
-	*********************************************************************************************************/
-	if((ssd->parameter->advanced_commands&AD_TWOPLANE)==AD_TWOPLANE)
-	{	
-		for(lv_plane=0;lv_plane<ssd->parameter->plane_die;lv_plane++)
-		{
-			direct_erase_node2=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].erase_node;
-			if((lv_plane!=plane)&&(direct_erase_node2!=NULL))
-			{
-				if((direct_erase_node1->block)==(direct_erase_node2->block))
-				{
-					muilt_plane_flag=TRUE;
-					break;
-				}
-			}
-		}
-	}
-
-	/***************************************************************************************
-	*当能处理INTERLEAVE高级命令时，就在相应的channel，chip找到可以执行INTERLEAVE的两个block
-	*并置interleaver_flag为TRUE
-	****************************************************************************************/
-	if((ssd->parameter->advanced_commands&AD_INTERLEAVE)==AD_INTERLEAVE)
-	{
-		for(lv_die=0;lv_die<ssd->parameter->die_chip;lv_die++)
-		{
-			if(lv_die!=die)
-			{
-				for(lv_plane=0;lv_plane<ssd->parameter->plane_die;lv_plane++)
-				{
-					if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].erase_node!=NULL)
-					{
-						interleaver_flag=TRUE;
-						break;
-					}
-				}
-			}
-			if(interleaver_flag==TRUE)
-			{
-				break;
-			}
-		}
-	}
-    
-	/************************************************************************************************************************
-	*A，如果既可以执行twoplane的两个block又有可以执行interleaver的两个block，那么就执行INTERLEAVE_TWO_PLANE的高级命令擦除操作
-	*B，如果只有能执行interleaver的两个block，那么就执行INTERLEAVE高级命令的擦除操作
-	*C，如果只有能执行TWO_PLANE的两个block，那么就执行TWO_PLANE高级命令的擦除操作
-	*D，没有上述这些情况，那么就只能够执行普通的擦除操作了
-	*************************************************************************************************************************/
-	if ((muilt_plane_flag==TRUE)&&(interleaver_flag==TRUE)&&((ssd->parameter->advanced_commands&AD_TWOPLANE)==AD_TWOPLANE)&&((ssd->parameter->advanced_commands&AD_INTERLEAVE)==AD_INTERLEAVE))     
-	{
-		if(erase_planes(ssd,channel,chip,die,plane,INTERLEAVE_TWO_PLANE)==SUCCESS)
-		{
-			return SUCCESS;
-		}
-	} 
-	else if ((interleaver_flag==TRUE)&&((ssd->parameter->advanced_commands&AD_INTERLEAVE)==AD_INTERLEAVE))
-	{
-		if(erase_planes(ssd,channel,chip,die,plane,INTERLEAVE)==SUCCESS)
-		{
-			return SUCCESS;
-		}
-	}
-	else if ((muilt_plane_flag==TRUE)&&((ssd->parameter->advanced_commands&AD_TWOPLANE)==AD_TWOPLANE))
-	{
-		if(erase_planes(ssd,channel,chip,die,plane,TWO_PLANE)==SUCCESS)
-		{
-			return SUCCESS;
-		}
-	}
 
 	if ((normal_erase_flag==TRUE))                              /*不是每个plane都有可以直接删除的block，只对当前plane进行普通的erase操作，或者只能执行普通命令*/
 	{
@@ -977,55 +802,9 @@ Status move_page(struct ssd_info * ssd, struct local *location, unsigned int * t
 
 	new_location=find_location(ssd,ppn); 
 	/*根据新获得的ppn获取new_location*/                                                                  
-	if ((ssd->parameter->advanced_commands&AD_COPYBACK)==AD_COPYBACK)
-	{	
-		/*贪婪地使用高级命令*/
-		if (ssd->parameter->greed_CB_ad==1)                                                                
-		{
-			ssd->copy_back_count++;
-			ssd->gc_copy_back++;
-			while (old_ppn%2!=ppn%2)
-			{
-				ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].free_state=0;
-				ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].lpn=0;
-				ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].valid_state=0;
-				ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].invalid_page_num++;
-				
-				free(new_location);
-				new_location=NULL;
-				/*找出来的ppn一定是在发生gc操作的plane中，并且满足奇偶地址限制,才能使用copyback操作*/
-				ppn=get_ppn_for_gc(ssd,location->channel,location->chip,location->die,location->plane);    
-				ssd->program_count--;
-				ssd->write_flash_count--;
-				ssd->waste_page_count++;
-			}
-			if(new_location==NULL)
-			{
-				new_location=find_location(ssd,ppn);
-			}
-			
-			ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].free_state=free_state;
-			ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].lpn=lpn;
-			ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].valid_state=valid_state;
-		} 
-		else
-		{
-			if (old_ppn%2!=ppn%2)
-			{
-				(* transfer_size)+=size(valid_state);
-			}
-			else
-			{
-
-				ssd->copy_back_count++;
-				ssd->gc_copy_back++;
-			}
-		}	
-	} 
-	else
-	{
-		(* transfer_size)+=size(valid_state);
-	}
+	
+	(* transfer_size)+=size(valid_state);
+	
 	ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].free_state=free_state;
 	ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].lpn=lpn;
 	ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].valid_state=valid_state;
@@ -1068,7 +847,7 @@ int uninterrupt_gc(struct ssd_info *ssd,unsigned int channel,unsigned int chip,u
 	int MSB_read=0;
 	int page_type_tlc=0;
  	/*获取活跃 可写块*/
-	if(find_active_block(ssd,channel,chip,die,plane)!=SUCCESS)                                          
+	if(find_active_block(ssd,channel,chip,die,plane,4,location)!=SUCCESS)                                          
 	{
 		printf("\n\n Error in uninterrupt_gc().\n");
 		return ERROR;
@@ -1095,13 +874,13 @@ int uninterrupt_gc(struct ssd_info *ssd,unsigned int channel,unsigned int chip,u
 		return 1;
 	}
 
-	LSB_program = ssd->parameter->time_characteristics.pLSB;
-	CSB_program = ssd->parameter->time_characteristics.pCSB;
-	MSB_program = ssd->parameter->time_characteristics.pMSB;
+	LSB_program = ssd->parameter->time_characteristics.tpLSB;
+	CSB_program = ssd->parameter->time_characteristics.tpCSB;
+	MSB_program = ssd->parameter->time_characteristics.tpMSB;
 
-	LSB_read = ssd->parameter->time_characteristics.rLSB;
-	CSB_read = ssd->parameter->time_characteristics.rCSB;
-	MSB_read = ssd->parameter->time_characteristics.rMSB;
+	LSB_read = ssd->parameter->time_characteristics.trLSB;
+	CSB_read = ssd->parameter->time_characteristics.trCSB;
+	MSB_read = ssd->parameter->time_characteristics.trMSB;
 
 	//if(invalid_page<5)
 	//{
@@ -1167,24 +946,8 @@ int uninterrupt_gc(struct ssd_info *ssd,unsigned int channel,unsigned int chip,u
 	*在可执行COPYBACK高级命令与不可执行COPYBACK高级命令这两种情况下，
 	*channel下个状态时间的计算，以及chip下个状态时间的计算
 	***************************************************************/
-
-	//the difference of tlc pages has not been considered during gc process  gaocm
-	if ((ssd->parameter->advanced_commands&AD_COPYBACK)==AD_COPYBACK)
-	{
-		if (ssd->parameter->greed_CB_ad==1)
-		{
-
-			ssd->channel_head[channel].next_state_predict_time=ssd->current_time+page_move_count*(7*ssd->parameter->time_characteristics.tWC+ssd->parameter->time_characteristics.tR+7*ssd->parameter->time_characteristics.tWC+ssd->parameter->time_characteristics.tPROG);			
-			ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time+ssd->parameter->time_characteristics.tBERS;
-		} 
-	} 
-	else
-	{
-
-		ssd->channel_head[channel].next_state_predict_time=ssd->current_time+page_move_count*(7*ssd->parameter->time_characteristics.tWC+ssd->parameter->time_characteristics.tR+7*ssd->parameter->time_characteristics.tWC)+LSB_count*(LSB_program+LSB_read)+MSB_count*(MSB_program+MSB_read)+CSB_count*(CSB_program+CSB_read)+transfer_size*SECTOR*(ssd->parameter->time_characteristics.tWC);					
-		ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time+ssd->parameter->time_characteristics.tBERS;
-
-	}
+	ssd->channel_head[channel].next_state_predict_time=ssd->current_time+page_move_count*(7*ssd->parameter->time_characteristics.tWC+ssd->parameter->time_characteristics.tR+7*ssd->parameter->time_characteristics.tWC)+LSB_count*(LSB_program+LSB_read)+MSB_count*(MSB_program+MSB_read)+CSB_count*(CSB_program+CSB_read)+transfer_size*SECTOR*(ssd->parameter->time_characteristics.tWC);					
+	ssd->channel_head[channel].chip_head[chip].next_state_predict_time=ssd->channel_head[channel].next_state_predict_time+ssd->parameter->time_characteristics.tBERS;
 
 	return 1;
 }

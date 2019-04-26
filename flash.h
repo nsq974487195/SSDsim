@@ -6,12 +6,8 @@
 #include "pagemap.h"
 #include <math.h>
 
-#ifndef INITIALIZE
-#define INITIALIZE
-
 #include "initialize.h"
 
-#endif
 #include "tools.h"
 
 
@@ -30,7 +26,7 @@ struct sub_request *find_interleave_twoplane_page(struct ssd_info *ssd, struct s
 
 struct ssd_info *delete_from_channel(struct ssd_info *ssd,unsigned int channel,struct sub_request * sub_req);
 
-int  find_active_block(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane);
+Status find_active_block(struct ssd_info *ssd,unsigned int channel, unsigned int chip, unsigned int die, unsigned int plane, unsigned int page_group,struct local *location);
 
 int write_page(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane,unsigned int active_block,unsigned int *ppn);
 
@@ -54,8 +50,7 @@ struct sub_request * create_del_sub_request(struct ssd_info* ssd, unsigned int l
 
 int delete_del_sub_request(struct ssd_info * ssd, unsigned int channel, struct sub_request * sub );
 
-unsigned int size(unsigned int);
+Status find_active_block_SD(struct ssd_info *ssd,struct local *location, struct sub_request *sub);
 // the advanced function
-
 #endif
 

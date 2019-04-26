@@ -61,8 +61,6 @@ extern int freeFunc(TREE_NODE *pNode)
 
 
 /**********   initiation   ******************
-*modify by zhouwen
-*November 08,2011
 *initialize the ssd struct to simulate the ssd hardware
 *1.this function allocate memory for ssd structure 
 *2.set the infomation according to the parameter file
@@ -75,34 +73,6 @@ struct ssd_info *initiation(struct ssd_info *ssd)
 	struct parameter_value *parameters;
 	FILE *fp=NULL;
 	
-	/*printf("input parameter file name:");
-	gets(ssd->parameterfilename);
- 	strcpy_s(ssd->parameterfilename,16,"page.parameters");
-
-	printf("\ninput trace file name:");
-	gets(ssd->tracefilename);
-	strcpy_s(ssd->tracefilename,25,"Exchange.ascii");
-
-	printf("\ninput output file name:");
-	gets(ssd->outputfilename);
-	strcpy_s(ssd->outputfilename,7,"ex.out");
-
-	printf("\ninput statistic file name:");
-	gets(ssd->statisticfilename);
-	strcpy_s(ssd->statisticfilename,16,"statistic10.dat");
-
-	strcpy_s(ssd->statisticfilename2 ,16,"statistic2.dat");*/
-	
-	//strncpy(ssd->parameterfilename,"page.parameters",16);
-	//strncpy(ssd->tracefilename,"example.ascii",25);
-	//printf("\ninput trace file name:");
-	//scanf("%s",ssd->tracefilename);
-	//strncpy(ssd->tracefilename,"test",5);
-	//strncpy(ssd->outputfilename,"ex.out",7);
-	//strncpy(ssd->statisticfilename,"statistic10.dat",16);
-	//strncpy(ssd->statisticfilename2,"statistic2.dat",15);
-
-	//µ¼ÈëssdµÄÅäÖÃÎÄ¼þ
 	parameters=load_parameters(ssd->parameterfilename);
 	ssd->parameter=parameters;
 	ssd->min_lsn=0x7fffffff;
@@ -110,13 +80,13 @@ struct ssd_info *initiation(struct ssd_info *ssd)
 
 	ssd->gap =100; 
 	
-	//³õÊ¼»¯ dram
+
 	ssd->dram = (struct dram_info *)malloc(sizeof(struct dram_info));
 	alloc_assert(ssd->dram,"ssd->dram");
 	memset(ssd->dram,0,sizeof(struct dram_info));
 	initialize_dram(ssd);
 
-	//³õÊ¼»¯Í¨µÀ
+
 	ssd->channel_head=(struct channel_info*)malloc(ssd->parameter->channel_number * sizeof(struct channel_info));
 	alloc_assert(ssd->channel_head,"ssd->channel_head");
 	memset(ssd->channel_head,0,ssd->parameter->channel_number * sizeof(struct channel_info));
@@ -297,12 +267,8 @@ struct chip_info * initialize_chip(struct chip_info * p_chip,struct parameter_va
 	p_chip->current_state = CHIP_IDLE;
 	p_chip->next_state = CHIP_IDLE;
 	p_chip->current_time = current_time;
-	p_chip->next_state_predict_time = 0;			
-	p_chip->die_num = parameter->die_chip;
-	p_chip->plane_num_die = parameter->plane_die;
-	p_chip->block_num_plane = parameter->block_plane;
-	p_chip->page_num_block = parameter->block_plane;
-	p_chip->subpage_num_page = parameter->subpage_page;
+	p_chip->next_state_predict_time = 0;
+
 	p_chip->ers_limit = parameter->ers_limit;
 	p_chip->token=0;
 	p_chip->ac_timing = parameter->time_characteristics;		
@@ -336,7 +302,6 @@ struct ssd_info * initialize_channels(struct ssd_info * ssd )
 		p_channel->chip = ssd->parameter->chip_channel[i];
 		p_channel->current_state = CHANNEL_IDLE;
 		p_channel->next_state = CHANNEL_IDLE;
-		p_channel->cycle_length = 8;
 		p_channel->subs_r_head=NULL;
 		p_channel->subs_r_tail=NULL;
 		

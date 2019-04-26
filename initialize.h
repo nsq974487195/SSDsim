@@ -25,7 +25,9 @@ Hao Luo         2011/01/01        2.0           Change               luohao13568
 #include <ctype.h>
 #include <sys/types.h>
 #include "avlTree.h"
-#include "tools.h"
+
+//#include "tools.h"
+
 
 
 #define SECTOR 512
@@ -235,18 +237,17 @@ struct ssd_info{
 
 	unsigned long count;
 
-    struct parameter_value *parameter;   //SSD²ÎÊýÒò×Ó
+    struct parameter_value *parameter;   //SSD参数因子
 	struct dram_info *dram;
 	struct request *request_queue;       //dynamic request queue
-	//struct request *del_request_queue;       //dynamic request queue
-
 	struct request *request_tail;	     // the tail of the request queue
+
 	struct request *del_request_tail;
 
-	struct sub_request *subs_w_head;     //µ±²ÉÓÃÈ«¶¯Ì¬·ÖÅäÊ±£¬·ÖÅäÊÇ²»ÖªµÀÓ¦¸Ã¹ÒÔØÄÄ¸öchannelÉÏ£¬ËùÒÔÏÈ¹ÒÔÚssdÉÏ£¬µÈ½øÈëprocessº¯ÊýÊ±²Å¹Òµ½ÏàÓ¦µÄchannelµÄ¶ÁÇëÇó¶ÓÁÐÉÏ
+	struct sub_request *subs_w_head;     //当采用全动态分配时，分配是不知道应该挂载哪个channel上，所以先挂在ssd上，等进入process函数时才挂到相应的channel的读请求队列上
 	struct sub_request *subs_w_tail;
-	struct event_node *event;            //ÊÂ¼þ¶ÓÁÐ£¬Ã¿²úÉúÒ»¸öÐÂµÄÊÂ¼þ£¬°´ÕÕÊ±¼äË³Ðò¼Óµ½Õâ¸ö¶ÓÁÐ£¬ÔÚsimulateº¯Êý×îºó£¬¸ù¾ÝÕâ¸ö¶ÓÁÐ¶ÓÊ×µÄÊ±¼ä£¬È·¶¨Ê±¼ä
-	struct channel_info *channel_head;   //Ö¸Ïòchannel½á¹¹ÌåÊý×éµÄÊ×µØÖ·
+//	struct event_node *event;            //事件队列，每产生一个新的事件，按照时间顺序加到这个队列，在simulate函数最后，根据这个队列队首的时间，确定时间
+	struct channel_info *channel_head;   //指向channel结构体数组的首地址
 
 	unsigned int tmp_count;
 	unsigned int total_gc;
@@ -274,7 +275,7 @@ struct channel_info{
 	int64_t current_time;                //记录该通道的当前时间
 	int64_t next_state_predict_time;     //the predict time of next state, used to decide the sate at the moment
 
-	struct event_node *event;
+//	struct event_node *event;
 	struct sub_request *subs_r_head;     //channel上的读请求队列头，先服务处于队列头的子请求
 	struct sub_request *subs_r_tail;     //channel上的读请求队列尾，新加进来的子请求加到队尾
 	struct sub_request *subs_w_head;     //channel上的写请求队列头，先服务处于队列头的子请求
@@ -286,66 +287,65 @@ struct channel_info{
 
 	struct gc_operation *gc_command;     //记录需要产生gc的位置
 	struct chip_info *chip_head;
-
-	unsigned int rw_flag; // 1  process read request 0 write request
-	unsigned int read_level_flag; // the read levels
-	unsigned int cycle_length; // default 8    
+   
 };
 
 
 struct chip_info{
-	unsigned int die_num;               //表示一个颗粒中有多少个die
-	unsigned int plane_num_die;         //indicate how many planes in a die
-	unsigned int block_num_plane;       //indicate how many blocks in a plane
-	unsigned int page_num_block;        //indicate how many pages in a block
-	unsigned int subpage_num_page;      //indicate how many subpage in a page
-	unsigned int ers_limit;             //该chip中每块能够被擦除的次数
-	unsigned int token;                 //在动态分配中，为防止每次分配在第一个die需要维持一个令牌，每次从令牌所指的位置开始分配
-	
+	//在动态分配中，为防止每次分配在第一个die需要维持一个令牌，每次从令牌所指的位置开始分配
+	unsigned int token;                 
+           
+	//chip的状态推进
 	int current_state;                  //channel has serveral states, including idle, command/address transfer,data transfer,unknown
 	int next_state;
 	int64_t current_time;               //记录该通道的当前时间
 	int64_t next_state_predict_time;    //the predict time of next state, used to decide the sate at the moment
  
-	unsigned long read_count;           //how many read count in the process of workload
+	//chip的状态记录，包括该chip中每块能够被擦除的次数，读、写、编程次数
+	unsigned int ers_limit;  
+	unsigned long read_count;           
 	unsigned long program_count;
 	unsigned long erase_count;
 
-    struct ac_time_characteristics ac_timing;  
 	struct die_info *die_head;
 };
 
 
 
 struct die_info{
-
-	unsigned int token;                 //在动态分配中，为防止每次分配在第一个plane需要维持一个令牌，每次从令牌所指的位置开始分配
+	//在动态分配中，为防止每次分配在第一个plane需要维持一个令牌，每次从令牌所指的位置开始分配
+	unsigned int token;                 
 	struct plane_info *plane_head;
 	
 };
 
 
 struct plane_info{
-	int add_reg_ppn;                    //read，write时把地址传送到该变量，该变量代表地址寄存器。die由busy变为idle时，清除地址 //有可能因为一对多的映射，在一个读请求时，有多个相同的lpn，所以需要用ppn来区分  
-	unsigned int free_page;             //该plane中有多少free page
-	unsigned int ers_invalid;           //记录该plane中擦除失效的块数
-	unsigned int active_block;          //if a die has a active block, 该项表示其物理块号
-	int can_erase_block;                //记录在一个plane中准备在gc操作中被擦除操作的块,-1表示还没有找到合适的块
-	struct direct_erase *erase_node;    //用来记录可以直接删除的块号,在获取新的ppn时，每当出现invalid_page_num==64时，将其添加到这个指针上，供GC操作时直接删除
-	struct blk_info *blk_head;
-
-	unsigned long read_count;           //how many read count in the process of workload
+ 	//read，write时把地址传送到该变量，该变量代表地址寄存器。die由busy变为idle时，清除地址 //有可能因为一对多的映射，在一个读请求时，有多个相同的lpn，所以需要用ppn来区分  
+	int add_reg_ppn;                   
+	//该plane中有多少free page
+	unsigned int free_page;             
+	//该项表示其物理块号,为了管理方便,目前一个plane只有一个active block
+	unsigned int active_block;         
+	//用来记录可以直接删除的块号,在获取新的ppn时，每当出现invalid_page_num==64时，将其添加到这个指针上，供GC操作时直接删除
+	struct direct_erase *erase_node;    
+	
+	//chip的状态记录，包括该chip中每块能够被擦除的次数，读、写、编程次数
+	unsigned int ers_invalid; //记录该plane中擦除失效的块数           
+	unsigned long read_count;           
 	unsigned long program_count;	
 
-
+	struct blk_info *blk_head;
 };
 
 
 struct blk_info{
+	int last_write_page;               //记录最近一次写操作执行的页数,-1表示该块没有一页被写过, last_write_page表示block写入方式
+
 	unsigned int erase_count;          //块的擦除次数，该项记录在ram中，用于GC
 	unsigned int free_page_num;        //记录该块中的free页个数，同上
 	unsigned int invalid_page_num;     //记录该块中失效页的个数，同上
-	int last_write_page;               //记录最近一次写操作执行的页数,-1表示该块没有一页被写过, last_write_page表示block写入方式
+	
 	struct page_info *page_head;       //记录每一子页的状态
 };
 
@@ -366,7 +366,7 @@ struct dram_info{
 	unsigned int dram_capacity;     
 	int64_t current_time;
 
-	struct dram_parameter *dram_paramters;      
+	//struct dram_parameter *dram_paramters;      
 	struct map_info *map;
 	struct buffer_info *buffer; 
 
@@ -408,7 +408,7 @@ struct map_info{
 };
 
 
-
+// 后续可以删除, 结构体controller未使用
 struct controller_info{
 	unsigned int frequency;             //表示该控制器的工作频率
 	int64_t clock_time;                 //表示一个时钟周期的时间
@@ -470,12 +470,12 @@ struct event_node{
 };
 
 struct parameter_value{
-	unsigned int chip_num;          //¼ÇÂ¼Ò»¸öSSDÖÐÓÐ¶àÉÙ¸ö¿ÅÁ£
-	unsigned int dram_capacity;     //¼ÇÂ¼SSDÖÐDRAM capacity
-	unsigned int cpu_sdram;         //¼ÇÂ¼Æ¬ÄÚÓÐ¶àÉÙ
+	unsigned int chip_num;          //记录一个SSD中有多少个颗粒
+	unsigned int dram_capacity;     //记录SSD中DRAM capacity
+	unsigned int cpu_sdram;         //记录片内有多少
 
-	unsigned int channel_number;    //¼ÇÂ¼SSDÖÐÓÐ¶àÉÙ¸öÍ¨µÀ£¬Ã¿¸öÍ¨µÀÊÇµ¥¶ÀµÄbus
-	unsigned int chip_channel[100]; //ÉèÖÃSSDÖÐchannelÊýºÍÃ¿channelÉÏ¿ÅÁ£µÄÊýÁ¿
+	unsigned int channel_number;    //记录SSD中有多少个通道，每个通道是单独的bus
+	unsigned int chip_channel[100]; //设置SSD中channel数和每channel上颗粒的数量
 
 	unsigned int die_chip;    
 	unsigned int plane_die;
@@ -487,16 +487,16 @@ struct parameter_value{
 	unsigned int subpage_capacity;
 
 
-	unsigned int ers_limit;         //¼ÇÂ¼Ã¿¸ö¿é¿É²Á³ýµÄ´ÎÊý
-	int address_mapping;            //¼ÇÂ¼Ó³ÉäµÄÀàÐÍ£¬1£ºpage£»2£ºblock£»3£ºfast
-	int wear_leveling;              // WLËã·¨
-	int gc;                         //¼ÇÂ¼gc²ßÂÔ
-	int clean_in_background;        //Çå³ý²Ù×÷ÊÇ·ñÔÚÇ°Ì¨Íê³É
-	int alloc_pool;                 //allocation pool ´óÐ¡(plane£¬die£¬chip£¬channel),Ò²¾ÍÊÇÓµÓÐactive_blockµÄµ¥Î»
+	unsigned int ers_limit;         //记录每个块可擦除的次数
+	int address_mapping;            //记录映射的类型，1：page；2：block；3：fast
+	int wear_leveling;              // WL算法
+	int gc;                         //记录gc策略
+	int clean_in_background;        //清除操作是否在前台完成
+	int alloc_pool;                 //allocation pool 大小(plane，die，chip，channel),也就是拥有active_block的单位
 	float overprovide;
-	float gc_threshold;             //µ±´ïµ½Õâ¸öãÐÖµÊ±£¬¿ªÊ¼GC²Ù×÷£¬ÔÚÖ÷¶¯Ð´²ßÂÔÖÐ£¬¿ªÊ¼GC²Ù×÷ºó¿ÉÒÔÁÙÊ±ÖÐ¶ÏGC²Ù×÷£¬·þÎñÐÂµ½µÄÇëÇó£»ÔÚÆÕÍ¨²ßÂÔÖÐ£¬GC²»¿ÉÖÐ¶Ï
+	float gc_threshold;             //当达到这个阈值时，开始GC操作，在主动写策略中，开始GC操作后可以临时中断GC操作，服务新到的请求；在普通策略中，GC不可中断
 
-	double operating_current;       //NAND FLASHµÄ¹¤×÷µçÁ÷µ¥Î»ÊÇuA
+	double operating_current;       //NAND FLASH的工作电流单位是uA
 	double supply_voltage;	
 	double dram_active_current;     //cpu sdram work current   uA
 	double dram_standby_current;    //cpu sdram work current   uA
@@ -504,41 +504,41 @@ struct parameter_value{
 	double dram_voltage;            //cpu sdram work voltage  V
 
 	int buffer_management;          //indicates that there are buffer management or not
-	int scheduling_algorithm;       //¼ÇÂ¼Ê¹ÓÃÄÄÖÖµ÷¶ÈËã·¨£¬1:FCFS
+	int scheduling_algorithm;       //记录使用哪种调度算法，1:FCFS
 	float quick_radio;
 	int related_mapping;
 
 	unsigned int time_step;
 	unsigned int small_large_write; //the threshould of large write, large write do not occupt buffer, which is written back to flash directly
 
-	int striping;                   //±íÊ¾ÊÇ·ñÊ¹ÓÃÁËstriping·½Ê½£¬0±íÊ¾Ã»ÓÐ£¬1±íÊ¾ÓÐ
+	int striping;                  //表示是否使用了striping方式，0表示没有，1表示有
 	int interleaving;
 	int pipelining;
 	int threshold_fixed_adjust;
 	int threshold_value;
-	int active_write;               //±íÊ¾ÊÇ·ñÖ´ÐÐÖ÷¶¯Ð´²Ù×÷1,yes;0,no
-	float gc_hard_threshold;        //ÆÕÍ¨²ßÂÔÖÐÓÃ²»µ½¸Ã²ÎÊý£¬Ö»ÓÐÔÚÖ÷¶¯Ð´²ßÂÔÖÐ£¬µ±Âú×ãÕâ¸öãÐÖµÊ±£¬GC²Ù×÷²»¿ÉÖÐ¶Ï
-	int allocation_scheme;          //¼ÇÂ¼·ÖÅä·½Ê½µÄÑ¡Ôñ£¬0±íÊ¾¶¯Ì¬·ÖÅä£¬1±íÊ¾¾²Ì¬·ÖÅä
-	int static_allocation;          //¼ÇÂ¼ÊÇÄÇÖÖ¾²Ì¬·ÖÅä·½Ê½£¬ÈçICS09ÄÇÆªÎÄÕÂËùÊöµÄËùÓÐ¾²Ì¬·ÖÅä·½Ê½
-	int dynamic_allocation;         //¼ÇÂ¼¶¯Ì¬·ÖÅäµÄ·½Ê½
+	int active_write;               //表示是否执行主动写操作1,yes;0,no
+	float gc_hard_threshold;        //普通策略中用不到该参数，只有在主动写策略中，当满足这个阈值时，GC操作不可中断
+	int allocation_scheme;          //记录分配方式的选择，0表示动态分配，1表示静态分配
+	int static_allocation;          //记录是那种静态分配方式，如ICS09那篇文章所述的所有静态分配方式
+	int dynamic_allocation;         //记录动态分配的方式
 	int advanced_commands;  
 	int ad_priority;                //record the priority between two plane operation and interleave operation
 	int ad_priority2;               //record the priority of channel-level, 0 indicates that the priority order of channel-level is highest; 1 indicates the contrary
 	int greed_CB_ad;                //0 don't use copyback advanced commands greedily; 1 use copyback advanced commands greedily
 	int greed_MPW_ad;               //0 don't use multi-plane write advanced commands greedily; 1 use multi-plane write advanced commands greedily
-	int aged;                       //1±íÊ¾ÐèÒª½«Õâ¸öSSD±ä³Éaged£¬0±íÊ¾ÐèÒª½«Õâ¸öSSD±£³Önon-aged
+	int aged;                       //1表示需要将这个SSD变成aged，0表示需要将这个SSD保持non-aged
 	float aged_ratio; 
-	int queue_length;               //ÇëÇó¶ÓÁÐµÄ³¤¶ÈÏÞÖÆ
+	int queue_length;               //请求队列的长度限制
 
 	struct ac_time_characteristics time_characteristics;
 };
 
 /********************************************************
-*mapping information,stateµÄ×î¸ßÎ»±íÊ¾ÊÇ·ñÓÐ¸½¼ÓÓ³Éä¹ØÏµ
+*mapping information,state的最高位表示是否有附加映射关系
 *********************************************************/
 struct entry{                       
-	unsigned int pn;                //ÎïÀíºÅ£¬¼È¿ÉÒÔ±íÊ¾ÎïÀíÒ³ºÅ£¬Ò²¿ÉÒÔ±íÊ¾ÎïÀí×ÓÒ³ºÅ£¬Ò²¿ÉÒÔ±íÊ¾ÎïÀí¿éºÅ
-	int state;                      //Ê®Áù½øÖÆ±íÊ¾µÄ»°ÊÇ0000-FFFF£¬Ã¿Î»±íÊ¾ÏàÓ¦µÄ×ÓÒ³ÊÇ·ñÓÐÐ§£¨Ò³Ó³Éä£©¡£±ÈÈçÔÚÕâ¸öÒ³ÖÐ£¬0£¬1ºÅ×ÓÒ³ÓÐÐ§£¬2£¬3ÎÞÐ§£¬Õâ¸öÓ¦¸ÃÊÇ0x0003.
+	unsigned int pn;                 //物理号，既可以表示物理页号，也可以表示物理子页号，也可以表示物理块号
+	int state;                      //十六进制表示的话是0000-FFFF，每位表示相应的子页是否有效（页映射）。比如在这个页中，0，1号子页有效，2，3无效，这个应该是0x0003.
 	unsigned int history_ppn[15]; // 记下lpn所对应的ppn的历史版本，最大为100
 	unsigned int count; //记下当前的ppn在group的内部编号， 默认为-1, 依次从0,1,2,3 
 };
@@ -557,11 +557,11 @@ struct local{
 
 
 struct gc_info{
-	int64_t begin_time;            //¼ÇÂ¼Ò»¸öplaneÊ²Ã´Ê±ºò¿ªÊ¼gc²Ù×÷µÄ
+	int64_t begin_time;            //记录一个plane什么时候开始gc操作的
 	int copy_back_count;    
 	int erase_count;
-	int64_t process_time;          //¸Ãplane»¨ÁË¶àÉÙÊ±¼äÔÚgc²Ù×÷ÉÏ
-	double energy_consumption;     //¸Ãplane»¨ÁË¶àÉÙÄÜÁ¿ÔÚgc²Ù×÷ÉÏ
+	int64_t process_time;          //该plane花了多少时间在gc操作上
+	double energy_consumption;     //该plane花了多少能量在gc操作上
 };
 
 
@@ -572,37 +572,38 @@ struct direct_erase{
 
 
 /**************************************************************************************
- *µ±²úÉúÒ»¸öGC²Ù×÷Ê±£¬½«Õâ¸ö½á¹¹¹ÒÔÚÏàÓ¦µÄchannelÉÏ£¬µÈ´ýchannel¿ÕÏÐÊ±£¬·¢³öGC²Ù×÷ÃüÁî
+ *当产生一个GC操作时，将这个结构挂在相应的channel上，等待channel空闲时，发出GC操作命令
 ***************************************************************************************/
 struct gc_operation{          
 	unsigned int chip;
 	unsigned int die;
 	unsigned int plane;
-	unsigned int block;           //¸Ã²ÎÊýÖ»ÔÚ¿ÉÖÐ¶ÏµÄgcº¯ÊýÖÐÊ¹ÓÃ£¨gc_interrupt£©£¬ÓÃÀ´¼ÇÂ¼ÒÑ½üÕÒ³öÀ´µÄÄ¿±ê¿éºÅ
-	unsigned int page;            //¸Ã²ÎÊýÖ»ÔÚ¿ÉÖÐ¶ÏµÄgcº¯ÊýÖÐÊ¹ÓÃ£¨gc_interrupt£©£¬ÓÃÀ´¼ÇÂ¼ÒÑ¾­Íê³ÉµÄÊý¾ÝÇ¨ÒÆµÄÒ³ºÅ
-	unsigned int state;           //¼ÇÂ¼µ±Ç°gcÇëÇóµÄ×´Ì¬
-	unsigned int priority;        //¼ÇÂ¼¸Ãgc²Ù×÷µÄÓÅÏÈ¼¶£¬1±íÊ¾²»¿ÉÖÐ¶Ï£¬0±íÊ¾¿ÉÖÐ¶Ï£¨ÈíãÐÖµ²úÉúµÄgcÇëÇó£©
+	unsigned int block;           //该参数只在可中断的gc函数中使用（gc_interrupt），用来记录已近找出来的目标块号
+	unsigned int page;            //该参数只在可中断的gc函数中使用（gc_interrupt），用来记录已经完成的数据迁移的页号
+	unsigned int state;           //记录当前gc请求的状态
+	unsigned int priority;        //记录该gc操作的优先级，1表示不可中断，0表示可中断（软阈值产生的gc请求）
 	struct gc_operation *next_node;
 };
 
-/*
-*add by ninja
-*used for map_pre function
-*/
-typedef struct Dram_write_map
-{
-	unsigned int state; 
-}Dram_write_map;
+
 
 
 struct ssd_info *initiation(struct ssd_info *);
+
 struct parameter_value *load_parameters(char parameter_file[30]);
+
 struct page_info * initialize_page(struct page_info * p_page,int random);
+
 struct blk_info * initialize_block(struct blk_info * p_block,struct parameter_value *parameter);
+
 struct plane_info * initialize_plane(struct plane_info * p_plane,struct parameter_value *parameter );
+
 struct die_info * initialize_die(struct die_info * p_die,struct parameter_value *parameter,long long current_time );
+
 struct chip_info * initialize_chip(struct chip_info * p_chip,struct parameter_value *parameter,long long current_time );
+
 struct ssd_info * initialize_channels(struct ssd_info * ssd );
+
 struct dram_info * initialize_dram(struct ssd_info * ssd);
 
 #endif

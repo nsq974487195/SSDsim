@@ -19,7 +19,8 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd);
 
 unsigned int get_ppn_for_pre_process(struct ssd_info *ssd,unsigned int lsn);
 
-
+// 分配物理地址
+struct local *init_location(struct ssd_info *ssd,unsigned int lpn);
 // 为正常的写请求提供ppn  physical page
 struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane,struct sub_request *sub);
 
@@ -47,8 +48,6 @@ int gc_for_channel(struct ssd_info *ssd, unsigned int channel);
 
 int delete_gc_node(struct ssd_info *ssd, unsigned int channel,struct gc_operation *gc_node);
 
-// 读请求的数据与状态的转换
-int set_entry_state(struct ssd_info *ssd,unsigned int lsn,unsigned int size);
 
 // MLC/TLC SSD读写编程时间
 int page_program_time(struct ssd_info *ssd, unsigned int page_loc);

@@ -21,13 +21,7 @@ Hao Luo         2011/01/01        2.0           Change               luohao13568
 #include <string.h>
 #include <sys/types.h>
 
-
-
-
-#ifndef INITIALIZE
-#define INITIALIZE
 #include "initialize.h"
-#endif
 
 #include <math.h>
 #include "flash.h"

@@ -95,32 +95,45 @@ struct sub_request * create_del_sub_request(struct ssd_info* ssd, unsigned int l
 Status allocate_location(struct ssd_info * ssd ,struct sub_request *sub_req)
 {
 	struct sub_request * update=NULL;
+	
 	unsigned int channel_num=0,chip_num=0,die_num=0,plane_num=0;
+	
 	struct local *location=NULL;
+	/*******************************************************************
+	用作计算本次更新的delta差值,  
+	1. stateA&stateB 表示A和B共同的重合部分,表示更新写;
+	2. stateA^(stateA&stateB) 表示A与重叠部分的不同,也就是新写
+	3. stateB^(stateA&stateB) 表示B与重叠部分的不同,也就是未修改的数据,需要读出来
+	*******************************************************************/
+	unsigned int stateA=0,stateB=0,stateD=0;
 
 	channel_num=ssd->parameter->channel_number;
+	
 	chip_num=ssd->parameter->chip_channel[0];
+	
 	die_num=ssd->parameter->die_chip;
+	
 	plane_num=ssd->parameter->plane_die;
     
 	/******************************************************************
-	* 在动态分配中，因为页的更新操作使用不了copyback操作，
-	*需要产生一个读请求，并且只有这个读请求完成后才能进行这个页的写操作
+	* 更新操作 需要产生一个读请求，并且只有这个读请求完成后才能进行这个页的写操作
 	*******************************************************************/	
 	if (ssd->dram->map->map_entry[sub_req->lpn].state!=0)
-	{                                                                              /*这个写回的子请求的逻辑页不可以覆盖之前被写回的数据 需要产生读请求*/  
+	{   
+		/*这个写回的子请求的逻辑页不可以覆盖之前被写回的数据 需要产生读请求, 如果最新的state 是包含旧的state,则也不需要产生新的update read请求*/  
+		stateA = sub_req->state;
+		stateB = ssd->dram->map->map_entry[sub_req->lpn].state;
+		stateD = stateA&stateB;
+
 		if ((sub_req->state&ssd->dram->map->map_entry[sub_req->lpn].state)!=ssd->dram->map->map_entry[sub_req->lpn].state)  
 		{
 			ssd->read_count++;
 			ssd->update_read_count++;
+
 			update=(struct sub_request *)malloc(sizeof(struct sub_request));
 			alloc_assert(update,"update");
 			memset(update,0, sizeof(struct sub_request));
 			
-			if(update==NULL)
-			{
-				return ERROR;
-			}
 			update->location=NULL;
 			update->next_node=NULL;
 			update->next_subs=NULL;
@@ -133,7 +146,7 @@ Status allocate_location(struct ssd_info * ssd ,struct sub_request *sub_req)
 			update->next_state = SR_R_C_A_TRANSFER;
 			update->next_state_predict_time=MAX_INT64;
 			update->lpn = sub_req->lpn;
-			update->state=((ssd->dram->map->map_entry[sub_req->lpn].state^sub_req->state)&0x7fffffff);
+			update->state=((stateB^stateD)&0x7fffffff);
 			update->size=size(update->state);
 			update->ppn = ssd->dram->map->map_entry[sub_req->lpn].pn;
 			update->operation = READ;
@@ -448,79 +461,89 @@ struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,
 }
 
 
+Status find_active_block(struct ssd_info *ssd,unsigned int channel, unsigned int chip, unsigned int die, unsigned int plane, unsigned int page_group,struct local *location){
+
+	unsigned int count =0;
+	unsigned int active_block=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block;
+	
+	unsigned int last_write_page=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
+
+	/*********************************************************
+	 last_write_page记录着上次写入的位置, 可以依次增加+1.或者依次+4,
+	 主要是根据last_write_page来判断
+	**********************************************************/
+	while((last_write_page== ssd->parameter->page_block / page_group )&&(count<ssd->parameter->block_plane)) 
+	{
+		active_block=(active_block+1)%ssd->parameter->block_plane;	
+		last_write_page=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
+		count++;
+	}
+
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block=active_block;
+
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page +=4;
+	
+	if(last_write_page>=(int)(ssd->parameter->page_block-1))
+	{
+		printf("error! the last write page larger than the capacity of block!!\n");
+	
+		getchar();
+
+		return ERROR;
+	}
+
+	if(count<ssd->parameter->block_plane)
+	{	
+
+		location->block = active_block;
+		location->page = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
+		return SUCCESS;
+	}
+	else
+	{
+		return FAILURE;
+	}
+
+}
 
 /**************************************************************************************
 函数的功能是寻找活跃快，应为每个plane中都只有一个活跃块，只有这个活跃块中才能进行操作
 传入变量location, location的来源有预处理和write sub,location里面的channel chip die plane 有效， block和page是无效的
 同时负责管理每个块block内的写点位置last_write_page，free page， invalid_page_num是按照 +1 往上增加
 ***************************************************************************************/
-Status find_active_block_SD(struct ssd_info *ssd,struct local *location )
-{
+Status find_active_block_SD(struct ssd_info *ssd,struct local *location, struct sub_request *sub){
+
 	unsigned int active_block;
 	unsigned int free_page_num=0,last_write_page=0;
-	unsigned int count=0;
+	unsigned int count=0,flag=1;
 	unsigned int channel=location->channel, chip=location->chip, die=location->die, plane=location->plane;
 	unsigned int page_group = 4;
-	// 
-	if(ssd->dram->map->map_entry[sub->lpn].state!=0)
-	{
-		if(ssd->dram->map->map_entry[sub->lpn].count<0)
+
+	if( sub == NULL){
+
+		if(find_active_block(ssd,channel,chip,die,plane,page_group,location) != SUCCESS)  { printf("find_active_block error!\n"); flag =0;}
+	
+	}else if(ssd->dram->map->map_entry[sub->lpn].state!=0){
+
+		if(ssd->dram->map->map_entry[sub->lpn].count<0){
 
 			printf("%s\n","find_active_block_SD allocation error!");
 
-		else if(ssd->dram->map->map_entry[sub->lpn].count<2){
+			flag =0;
 
-			location->page = location->page+1; //推向下一个page地址
+		}else if(ssd->dram->map->map_entry[sub->lpn].count<2){
 
-		}else if(ssd->dram->map->map_entry[sub->lpn].count=2){   // 
+			location->page = location->page+1; //分配下一个page地址
+
+		}else if(ssd->dram->map->map_entry[sub->lpn].count=2){  
 			// 如果当前group是在block的顶端 或者 它的上一级 group 位置已经无效, 则可写3号位置
-			if (location->page == (ssd->parameter->page_block-2))||(ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+3].valid_state==0 ){
+			if ((location->page == (ssd->parameter->page_block-2))||(ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+3].valid_state==0 )){
 
-				location->page = location->page+1; //推向下一个page地址
+				location->page = location->page+1; //分配下一个page地址
 			} // end if
 			else{
-					active_block=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block;
-					//free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
-					last_write_page=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
-					/*********************************************************
-					 last_write_page记录着上次写入的位置, 可以依次增加+1.或者依次+4,
-					 主要是根据last_write_page来判断
-					**********************************************************/
-					while((last_write_page== ssd->parameter->page_block / page_group )&&(count<ssd->parameter->block_plane)) 
-					{
-						active_block=(active_block+1)%ssd->parameter->block_plane;	
-						last_write_page=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
-						count++;
-					}
-					ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block=active_block;
-
-					// 修改plane block和page的状态
-					ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page + =4;
-					ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num--;
-					ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page_num--; 
-					ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].written_count++;
-
-					if(last_write_page>=(int)(ssd->parameter->page_block-1))
-					{
-						printf("error! the last write page larger than the capacity of block!!\n");
-					
-						getchar();
-
-						return ERROR;
-					}
-
-					if(count<ssd->parameter->block_plane)
-					{	
-						location->block = active_block;
-						location->page = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
-						return SUCCESS;
-					}
-					else
-					{
-						return FAILURE;
-					}
+					if(find_active_block(ssd,channel,chip,die,plane,page_group,location) != SUCCESS) { printf("find_active_block error!\n"); flag =0;}		
 				}
-
 		}else{
 
 			printf("%s\n","find_active_block_SD allocation error!");
@@ -528,50 +551,19 @@ Status find_active_block_SD(struct ssd_info *ssd,struct local *location )
 		
 	//初次写, 在plane当中找到符合条件的block,分配相应的page，并且更新block的信息,mapping table 记下 lpn对应的group内的位置信息
 	}else{
-		active_block=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block;
-		//free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
-		last_write_page=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
-		/*********************************************************
-		 last_write_page记录着上次写入的位置, 可以依次增加+1.或者依次+4,
-		 主要是根据last_write_page来判断
-		**********************************************************/
-		while((last_write_page== ssd->parameter->page_block / page_group )&&(count<ssd->parameter->block_plane)) 
-		{
-			active_block=(active_block+1)%ssd->parameter->block_plane;	
-			last_write_page=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
-			count++;
-		}
 
-		ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block=active_block;
-
-		// 修改plane block和page的状态
-		ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page + =4;
-		ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num--;
-		ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page_num--; 
-		ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].written_count++;
-
-		if(last_write_page>=(int)(ssd->parameter->page_block-1))
-		{
-			printf("error! the last write page larger than the capacity of block!!\n");
-		
-			getchar();
-
-			return ERROR;
-		}
-
-		if(count<ssd->parameter->block_plane)
-		{	
-
-			location->block = active_block;
-			location->page = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page;
-			return SUCCESS;
-		}
-		else
-		{
-			return FAILURE;
-		}
+		if(find_active_block(ssd,channel,chip,die,plane,page_group,location) != SUCCESS)  { printf("find_active_block error!\n"); flag =0;}
 	}
+
+	// 修改plane block和page的状态
 	
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[location->block].free_page_num--;
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page--; 
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[location->block].page_head[location->page].written_count++;
+	
+	if(flag == 1) return SUCCESS;
+
+	else return FAILURE;
 }
 
 
@@ -581,26 +573,36 @@ Status find_active_block_SD(struct ssd_info *ssd,struct local *location )
 struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,int size,unsigned int state,struct request * req,unsigned int operation)
 {
 	struct sub_request* sub=NULL,* sub_r=NULL;
+
 	struct channel_info * p_ch=NULL;
+
 	struct local * loc=NULL;
+
 	unsigned int flag=0;
 
-	sub = (struct sub_request*)malloc(sizeof(struct sub_request));                        /*ÉêÇëÒ»¸ö×ÓÇëÇóµÄ½á¹¹*/
+	sub = (struct sub_request*)malloc(sizeof(struct sub_request));
+
 	alloc_assert(sub,"sub_request");
+
 	memset(sub,0, sizeof(struct sub_request));
 
 	if ((sub==NULL)&&(sub->ppn!=0))
 	{
 		return NULL;
 	}
+
 	sub->location=NULL;
+
 	sub->next_node=NULL;
+
 	sub->next_subs=NULL;
+
 	sub->update=NULL;
 	
 	if(req!=NULL)
 	{
 		sub->next_subs = req->subs;
+
 		req->subs = sub;
 	}
 	
@@ -618,16 +620,19 @@ struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,in
 		sub->next_state = SR_R_C_A_TRANSFER;
 		sub->next_state_predict_time=MAX_INT64;
 		sub->lpn = lpn;
-		sub->size=size;                                                               /*ÐèÒª¼ÆËã³ö¸Ã×ÓÇëÇóµÄÇëÇó´óÐ¡*/
-
+		sub->size=size;                                                              
+		/*需要计算出该子请求的请求大小*/
 		p_ch = &ssd->channel_head[loc->channel];	
 		sub->ppn = ssd->dram->map->map_entry[lpn].pn;
 		sub->operation = READ;
 		sub->state=(ssd->dram->map->map_entry[lpn].state&0x7fffffff);
-		sub_r=p_ch->subs_r_head;                                                      /*Ò»ÏÂ¼¸ÐÐ°üÀ¨flagÓÃÓÚÅÐ¶Ï¸Ã¶Á×ÓÇëÇó¶ÓÁÐÖÐÊÇ·ñÓÐÓëÕâ¸ö×ÓÇëÇóÏàÍ¬µÄ£¬ÓÐµÄ»°£¬½«ÐÂµÄ×ÓÇëÇóÖ±½Ó¸³ÎªÍê³É*/
+		/*一下几行包括flag用于判断该读子请求队列中是否有与这个子请求相同的，有的话，将新的子请求直接赋为完成*/
+		sub_r=p_ch->subs_r_head;                                                     
 		flag=0;
 
-
+		//读请求是在创造请求的请求的时候就 计算请求数，写请求在分配ppn的时候计算,累加
+		ssd->read_count++;
+		ssd->channel_head[location->channel].read_count++;
 		ssd->channel_head[loc->channel].chip_head[loc->chip].read_count++;
 		ssd->channel_head[loc->channel].chip_head[loc->chip].die_head[loc->die].plane_head[loc->plane].read_count++;
 
@@ -1220,7 +1225,6 @@ Status services_2_delete(struct ssd_info * ssd,unsigned int channel,unsigned int
 			sub->next_state=SR_COMPLETE;
 
 			static_delete(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);   
-			*change_current_time_flag=0;
 					
 			delete_del_sub_request(ssd,channel,sub);
 			*channel_busy_flag=1;
@@ -1269,8 +1273,7 @@ Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int 
 								break;
 							}
 							die_token=ssd->channel_head[channel].chip_head[chip_token].token;	
-							if (((ssd->parameter->advanced_commands&AD_INTERLEAVE)!=AD_INTERLEAVE)&&((ssd->parameter->advanced_commands&AD_TWOPLANE)!=AD_TWOPLANE))       //can't use advanced commands
-							{
+
 								sub=find_write_sub_request(ssd,channel);
 								if(sub==NULL)
 								{
@@ -1304,21 +1307,8 @@ Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int 
 									ssd->channel_head[channel].token=(ssd->channel_head[channel].token+1)%ssd->parameter->chip_channel[channel];
 									break;
 								}
-							} 
-							else                                                          /*use advanced commands*/
-							{
-								if (dynamic_advanced_process(ssd,channel,chip_token)==NULL)
-								{
-									*channel_busy_flag=0;
-								}
-								else
-								{
-									*channel_busy_flag=1;                                /*执行了一个请求，传输了数据，占用了总线，需要跳出到下一个channel*/
-                                    				ssd->channel_head[channel].chip_head[chip_token].token=(ssd->channel_head[channel].chip_head[chip_token].token+1)%ssd->parameter->die_chip;
-                                    				ssd->channel_head[channel].token=(ssd->channel_head[channel].token+1)%ssd->parameter->chip_channel[channel];
-									break;
-								}
-							}	
+							
+
 								
 						ssd->channel_head[channel].chip_head[chip_token].token=(ssd->channel_head[channel].chip_head[chip_token].token+1)%ssd->parameter->die_chip;
 					}
@@ -1341,8 +1331,6 @@ Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int 
 					if (*channel_busy_flag==0)
 					{
 							                                                            
-							if (((ssd->parameter->advanced_commands&AD_INTERLEAVE)!=AD_INTERLEAVE)&&((ssd->parameter->advanced_commands&AD_TWOPLANE)!=AD_TWOPLANE))     /*²»Ö´ÐÐ¸ß¼¶ÃüÁî*/
-							{
 								//for(die=0;die<ssd->channel_head[channel].chip_head[chip].die_num;die++)				
 								//{	
 									//if(ssd->channel_head[channel].subs_w_head==NULL)
@@ -1373,35 +1361,17 @@ Status services_2_write(struct ssd_info * ssd,unsigned int channel,unsigned int 
 										sub->current_state=SR_W_TRANSFER;
 										sub->next_state=SR_COMPLETE;
 
-										if ((ssd->parameter->advanced_commands&AD_COPYBACK)==AD_COPYBACK)
-										{
-											copy_back(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);      /*Èç¹û¿ÉÒÔÖ´ÐÐcopyback¸ß¼¶ÃüÁî£¬ÄÇÃ´¾ÍÓÃº¯Êýcopy_back(ssd, channel,chip, die,sub)´¦ÀíÐ´×ÓÇëÇó*/
+
+										static_write(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);   /*²»ÄÜÖ´ÐÐcopyback¸ß¼¶ÃüÁî£¬ÄÇÃ´¾ÍÓÃstatic_write(ssd, channel,chip, die,sub)º¯ÊýÀ´´¦ÀíÐ´×ÓÇëÇó*/ 
 											
-										} 
-										else
-										{
-											static_write(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);   /*²»ÄÜÖ´ÐÐcopyback¸ß¼¶ÃüÁî£¬ÄÇÃ´¾ÍÓÃstatic_write(ssd, channel,chip, die,sub)º¯ÊýÀ´´¦ÀíÐ´×ÓÇëÇó*/ 
-											
-										}
+										
 										
 										delete_w_sub_request(ssd,channel,sub);
 										*channel_busy_flag=1;
 										//break;
 									}
 								//}
-							} 
-							else                                                        /*²»ÄÜ´¦Àí¸ß¼¶ÃüÁî*/
-							{
-								if (dynamic_advanced_process(ssd,channel,sub->location->chip)==NULL)
-								{
-									*channel_busy_flag=0;
-								}
-								else
-								{
-									*channel_busy_flag=1;                               /*Ö´ÐÐÁËÒ»¸öÇëÇó£¬´«ÊäÁËÊý¾Ý£¬Õ¼ÓÃÁË×ÜÏß£¬ÐèÒªÌø³öµ½ÏÂÒ»¸öchannel*/
-									//break;
-								}
-							}	
+	
 						
 					}
 				//}		
@@ -1428,7 +1398,7 @@ struct ssd_info *process(struct ssd_info *ssd)
 	**********************************************************************************************************/
 	int old_ppn=-1,flag_die=-1; 
 	unsigned int i,chan,random_num;     
-	unsigned int flag=0,new_write=0,chg_cur_time_flag=1,flag2=0,flag_gc=0;       
+	unsigned int flag=0,new_write=0,flag2=0,flag_gc=0;       
 	int64_t time, channel_time=MAX_INT64;
 	struct sub_request *sub;          
 
@@ -1498,23 +1468,23 @@ struct ssd_info *process(struct ssd_info *ssd)
 			}
 
 			//sub=ssd->channel_head[i].subs_r_head;               /*先处理读请求*/
-			services_2_r_wait(ssd,i,&flag,&chg_cur_time_flag);    /*处理处于等待状态的读子请求*/
+			services_2_r_wait(ssd,i,&flag);    /*处理处于等待状态的读子请求*/
 		
 			if((flag==0)&&(ssd->channel_head[i].subs_r_head!=NULL))                      /*if there are no new read request and data is ready in some dies, send these data to controller and response this request*/		
 			{		     
-				services_2_r_data_trans(ssd,i,&flag,&chg_cur_time_flag);                    
+				services_2_r_data_trans(ssd,i,&flag);                    
 				//trace_channel_length(ssd,0);	
 			}
 			if(flag==0)                                                                  /*if there are no read request to take channel, we can serve write requests*/ 		
 			{	
-				services_2_write(ssd,i,&flag,&chg_cur_time_flag);
-				ssd->channel_head[i].rw_flag=1;
+				services_2_write(ssd,i,&flag);
+				
 				//trace_channel_length(ssd,1);
 			}
 			if(flag==0)                                                                  /*if there are no read request to take channel, we can serve write requests*/ 		
 			{	
-				services_2_delete(ssd,i,&flag,&chg_cur_time_flag);
-				ssd->channel_head[i].rw_flag=1;
+				services_2_delete(ssd,i,&flag);
+				
 				//trace_channel_length(ssd,1);
 			}
 
@@ -1668,7 +1638,7 @@ Status go_one_step(struct ssd_info * ssd, struct sub_request * sub1,struct sub_r
 			sub->current_time=ssd->current_time;
 			sub->current_state=SR_R_READ;
 			sub->next_state=SR_R_DATA_TRANSFER;
-			ssd->parameter->time_characteristics.tR = page_read_time(ssd,sub->location->page,ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].pv);
+			ssd->parameter->time_characteristics.tR = page_read_time(ssd,sub->location->page,0);
 			sub->next_state_predict_time=ssd->current_time+ssd->parameter->time_characteristics.tR;
 
 			ssd->channel_head[location->channel].chip_head[location->chip].current_state=CHIP_READ_BUSY;
@@ -1692,7 +1662,7 @@ Status go_one_step(struct ssd_info * ssd, struct sub_request * sub1,struct sub_r
 			sub->begin_time=ssd->current_time;
 
 			ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].add_reg_ppn=sub->ppn;
-			ssd->read_count++;
+			
 
 			ssd->channel_head[location->channel].current_state=CHANNEL_C_A_TRANSFER;									
 			ssd->channel_head[location->channel].current_time=ssd->current_time;										

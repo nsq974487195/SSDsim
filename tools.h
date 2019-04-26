@@ -1,3 +1,5 @@
+#ifndef TOOLS
+#define TOOLS 10000
 
 #include <stdio.h>
 #include <string.h>
@@ -5,14 +7,8 @@
 #include <time.h>
 #include <ctype.h>
 #include <sys/types.h>
-
-#ifndef INITIALIZE
-#define INITIALIZE
-#include <initalize.h>
-#endif
-
-#ifndef TOOLS
-#define TOOLS 10000
+#include<math.h>
+#include "initialize.h"
 
 //和 SSD无关的一些常用工具类函数
 void alloc_assert(void *p,char *s);
