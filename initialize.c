@@ -175,7 +175,7 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 
 	page_num = ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->plane_die*ssd->parameter->die_chip*ssd->parameter->chip_num;
 	printf("page_num:%d\n",page_num );
-	dram->map->map_entry = (struct entry *)malloc(sizeof(struct entry) * page_num); //Ã¿¸öÎïÀíÒ³ºÍÂß¼­Ò³¶¼ÓÐ¶ÔÓ¦¹ØÏµ
+	dram->map->map_entry = (struct entry *)malloc(sizeof(struct entry) * page_num); 
 	perror("提示");
 	alloc_assert(dram->map->map_entry,"dram->map->map_entry");
 	memset(dram->map->map_entry,0,sizeof(struct entry) * page_num);
@@ -271,7 +271,7 @@ struct chip_info * initialize_chip(struct chip_info * p_chip,struct parameter_va
 
 	p_chip->ers_limit = parameter->ers_limit;
 	p_chip->token=0;
-	p_chip->ac_timing = parameter->time_characteristics;		
+	//p_chip->ac_timing = parameter->time_characteristics;		
 	p_chip->read_count = 0;
 	p_chip->program_count = 0;
 	p_chip->erase_count = 0;

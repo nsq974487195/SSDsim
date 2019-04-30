@@ -1548,11 +1548,3 @@ int	create_del_request(struct ssd_info *ssd){
 	}
 
 }
-
-
-
-
-
-
-
-

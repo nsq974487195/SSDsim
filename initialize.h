@@ -323,7 +323,7 @@ struct die_info{
 struct plane_info{
  	//read，write时把地址传送到该变量，该变量代表地址寄存器。die由busy变为idle时，清除地址 //有可能因为一对多的映射，在一个读请求时，有多个相同的lpn，所以需要用ppn来区分  
 	int add_reg_ppn;                   
-	//该plane中有多少free page
+	//该plane中有多少free page,用来提出GC请求的
 	unsigned int free_page;             
 	//该项表示其物理块号,为了管理方便,目前一个plane只有一个active block
 	unsigned int active_block;         
@@ -540,7 +540,9 @@ struct entry{
 	unsigned int pn;                 //物理号，既可以表示物理页号，也可以表示物理子页号，也可以表示物理块号
 	int state;                      //十六进制表示的话是0000-FFFF，每位表示相应的子页是否有效（页映射）。比如在这个页中，0，1号子页有效，2，3无效，这个应该是0x0003.
 	unsigned int history_ppn[15]; // 记下lpn所对应的ppn的历史版本，最大为100
-	unsigned int count; //记下当前的ppn在group的内部编号， 默认为-1, 依次从0,1,2,3 
+	unsigned int count; //记下当前的lpn历史副本指针
+
+	unsigned int pos; //记下当前的ppn在group的内部编号， 默认为-1, 依次从0,1,2,3
 };
 
 
