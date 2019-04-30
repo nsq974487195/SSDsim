@@ -396,7 +396,11 @@ struct parameter_value *load_parameters(char parameter_file[30])
 		}else if((res_eql=strcmp(buf,"page capacity")) ==0){
 			sscanf(buf + next_eql,"%d",&p->page_capacity); 
 		}else if((res_eql=strcmp(buf,"subpage capacity")) ==0){
-			sscanf(buf + next_eql,"%d",&p->subpage_capacity); 
+			sscanf(buf + next_eql,"%d",&p->subpage_capacity);
+		
+		}else if((res_eql=strcmp(buf,"baseline or propose")) ==0){
+			sscanf(buf + next_eql,"%d",&p->base_or_pro);
+
 		}else if((res_eql=strcmp(buf,"t_PROG")) ==0){
 			sscanf(buf + next_eql,"%d",&p->time_characteristics.tPROG); 
 		}else if((res_eql=strcmp(buf,"t_DBSY")) ==0){

@@ -22,13 +22,10 @@ struct sub_request * find_write_sub_request(struct ssd_info * ssd, unsigned int 
 
 struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,int size,unsigned int state,struct request * req,unsigned int operation);
 
-struct sub_request *find_interleave_twoplane_page(struct ssd_info *ssd, struct sub_request *onepage,unsigned int command);
 
 struct ssd_info *delete_from_channel(struct ssd_info *ssd,unsigned int channel,struct sub_request * sub_req);
 
 Status find_active_block(struct ssd_info *ssd,unsigned int channel, unsigned int chip, unsigned int die, unsigned int plane, unsigned int page_group,struct local *location);
-
-int write_page(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane,unsigned int active_block,unsigned int *ppn);
 
 int allocate_location(struct ssd_info * ssd ,struct sub_request *sub_req);
 
@@ -52,5 +49,8 @@ int delete_del_sub_request(struct ssd_info * ssd, unsigned int channel, struct s
 
 Status find_active_block_SD(struct ssd_info *ssd,struct local *location, struct sub_request *sub);
 // the advanced function
+Status find_active_block_baseline(struct ssd_info *ssd,struct local *location, struct sub_request *sub);
+
+Status  find_active_block_select(struct ssd_info *ssd,struct local *location, struct sub_request *sub);
 #endif
 

@@ -250,7 +250,7 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 					//更新mapping table的信息
 					ssd->dram->map->map_entry[lpn].pn=ppn;	
 					ssd->dram->map->map_entry[lpn].state=set_entry_state(ssd,lsn,sub_size);   //0001
-					ssd->dram->map->map_entry[lpn].pos = location->page%4;
+					//ssd->dram->map->map_entry[lpn].pos = location->page%4;
 					//更新page的信息
 					ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].lpn=lpn;
 					ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].valid_state=ssd->dram->map->map_entry[lpn].state;
@@ -274,7 +274,7 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 					ppn=ssd->dram->map->map_entry[lpn].pn;
 					location=find_location(ssd,ppn);
 					
-					ssd->dram->map->map_entry[lpn].pos = location->page%4;
+					//ssd->dram->map->map_entry[lpn].pos = location->page%4;
 
 
 					if(	ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].lpn!= lpn)
@@ -454,7 +454,7 @@ unsigned int get_ppn_for_pre_process(struct ssd_info *ssd,unsigned int lsn)
 	location = init_location(ssd,lpn); 
     
 	//根据上述分配方法找到channel，chip，die，plane后，再在这个里面找到active_block *接着获得ppn
-	if(find_active_block_SD(ssd,location,NULL)==FAILURE)  
+	if(find_active_block_select(ssd,location,NULL)==FAILURE)  
 	{
 		printf("the read operation is expand the capacity of SSD\n");
 		
@@ -511,7 +511,7 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 	*利用函数find_active_block在channel，chip，die，plane找到活跃block
 	*并且修改这个channel，chip，die，plane，active_block下的last_write_page和free_page_num
 	**************************************************************************************/
-	if(find_active_block_SD(ssd,sub->location,sub)==FAILURE)                      
+	if(find_active_block_select(ssd,sub->location,sub)==FAILURE)                      
 	{
 		printf("ERROR :there is no free page in channel:%d, chip:%d, die:%d, plane:%d\n",channel,chip,die,plane);
 		printf("caused by static allocation_scheme, could be redirection to another location(channel,chip,die,plane)\n");	
@@ -534,10 +534,9 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 			getchar();
 		}
 
-
 		ssd->dram->map->map_entry[lpn].pn=find_ppn(ssd,channel,chip,die,plane,block,page);
 		ssd->dram->map->map_entry[lpn].state=sub->state;
-		ssd->dram->map->map_entry[lpn].pos = page%4;
+		//ssd->dram->map->map_entry[lpn].pos = page%4;
 	}
 	else  /*这个逻辑页进行了更新，需要将原来的页置为失效*/
 	{
@@ -598,7 +597,7 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 		location=NULL;
 
 		// 更新位置信息,在group内的位置 0,1,2,3
-		ssd->dram->map->map_entry[lpn].pos = page%4;
+		//ssd->dram->map->map_entry[lpn].pos = page%4;
 		ssd->dram->map->map_entry[lpn].pn=find_ppn(ssd,channel,chip,die,plane,block,page);
 		ssd->dram->map->map_entry[lpn].state=(ssd->dram->map->map_entry[lpn].state|sub->state);
 	}
@@ -668,7 +667,7 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 	printf("enter get_ppn_for_gc,channel:%d, chip:%d, die:%d, plane:%d\n",channel,chip,die,plane);
 #endif
 
-	if(find_active_block_SD(ssd,location,NULL)!=SUCCESS)
+	if(find_active_block_select(ssd,location,NULL)!=SUCCESS)
 	{
 		printf("\n\n Error int get_ppn_for_gc().\n");
 		return 0xffffffff;

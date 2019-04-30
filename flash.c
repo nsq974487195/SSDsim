@@ -1,8 +1,5 @@
 #include "flash.h"
 
-
-
-
 /*************************************************************************************
 *删除操作  操作的服从泊松分布，平均100个请求发出1个删除请求， 删除的LPN地址服从完全随机，删除的范围也服从泊松分布，
 *删除操作挂在channel上的删除操作请求队列上
@@ -500,7 +497,7 @@ Status find_active_block(struct ssd_info *ssd,unsigned int channel, unsigned int
 
 		location->block = active_block;
 
-		location->page = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page *4 ;
+		location->page = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].last_write_page *page_group ;
 
 		return SUCCESS;
 	}
@@ -512,8 +509,49 @@ Status find_active_block(struct ssd_info *ssd,unsigned int channel, unsigned int
 
 }
 
+
+
+Status find_active_block_baseline(struct ssd_info *ssd,struct local *location, struct sub_request *sub){
+
+	unsigned int active_block,ppn=0;
+	unsigned int free_page_num=0,last_write_page=0;
+	unsigned int count=0,flag=1;
+	unsigned int channel=location->channel, chip=location->chip, die=location->die, plane=location->plane;
+	unsigned int page_group = 1;
+
+
+	if(find_active_block(ssd,channel,chip,die,plane,page_group,location) != SUCCESS)  { printf("find_active_block error!\n"); flag =0;}
+
+
+
+	//更新plane内剩余的free page,用作GC
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page--; 
+	// 修改plane block和page的状态
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[location->block].free_page_num--;
+	
+	ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[location->block].page_head[location->page].written_count++;
+	
+	if(flag == 1) return SUCCESS;
+
+	else return FAILURE;
+}
+
+Status  find_active_block_select(struct ssd_info *ssd,struct local *location, struct sub_request *sub){
+
+	if(ssd->parameter->base_or_pro == 0)
+
+		return find_active_block_baseline(ssd,location,sub);
+
+	else if(ssd->parameter->base_or_pro == 1)
+
+		return find_active_block_SD(ssd, location, sub);
+
+	else { printf("%s\n"," no used scheme!"); return FAILURE;}
+}
+
+
 /**************************************************************************************
-函数的功能是寻找活跃快，应为每个plane中都只有一个活跃块，只有这个活跃块中才能进行操作
+函数的功能是寻找活跃块，应为每个plane中都只有一个活跃块，只有这个活跃块中才能进行操作
 传入变量location, location的来源有预处理和write sub,location里面的channel chip die plane 有效， block和page是无效的
 同时负责管理每个块block内的写点位置last_write_page，free page， invalid_page_num是按照 +1 往上增加
 ***************************************************************************************/
@@ -547,26 +585,42 @@ Status find_active_block_SD(struct ssd_info *ssd,struct local *location, struct 
 			//	printf("%s\n","it works normally" );
 		}
 
-		if(ssd->dram->map->map_entry[sub->lpn].pos<0){
+		if( tmp_local->page%4 <0){
 
-			printf("%s\n","find_active_block_SD allocation error!");
+			printf(" tmp_local->page%4 :%d %s\n",tmp_local->page%4 ,"find_active_block_SD allocation error!");
 
 			flag =0;
 
-		}else if(ssd->dram->map->map_entry[sub->lpn].pos<2){
+		}else if( tmp_local->page%4 <2){
 
-			location->page = tmp_local->page+1; //分配下一个page地址
+			if(	ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+1].lpn!= -1)
+			{
+				printf("\nError in find_active_block_SD(), the lpn isn't the same as the lpn stored in page \n");
+				getchar();
 
-		}else if(ssd->dram->map->map_entry[sub->lpn].pos=2){  
+			}else  location->page = tmp_local->page+1; //分配下一个page地址
+
+		}else if( tmp_local->page%4 ==2){  
 			// 如果当前group是在block的顶端 或者 它的上一级 group 位置已经无效, 则可写3号位置
 			if ((location->page == (ssd->parameter->page_block-2))||(ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+3].valid_state==0 )){
 
-				location->page = tmp_local->page+1; //分配下一个page地址
+				if(	ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+1].lpn!= -1)
+				{
+					printf("\nError in find_active_block_SD(), the lpn isn't the same as the lpn stored in page \n");
+					getchar();
+
+				}else  location->page = tmp_local->page+1; //分配下一个page地址
 
 			} // end if
 			else{
-					if(find_active_block(ssd,channel,chip,die,plane,page_group,location) != SUCCESS) { printf("find_active_block error!\n"); flag =0;}		
+
+				if(find_active_block(ssd,channel,chip,die,plane,page_group,location) != SUCCESS) { printf("find_active_block error!\n"); flag =0;}		
+				
 				}
+		}else if( tmp_local->page%4 ==3){
+
+			if(find_active_block(ssd,channel,chip,die,plane,page_group,location) != SUCCESS)  { printf("find_active_block error!\n"); flag =0;}
+		
 		}else{
 
 			printf("%s\n","find_active_block_SD allocation error!");

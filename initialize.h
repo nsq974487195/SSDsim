@@ -531,6 +531,8 @@ struct parameter_value{
 	int queue_length;               //请求队列的长度限制
 
 	struct ac_time_characteristics time_characteristics;
+
+	unsigned int base_or_pro; // 表示使用baseline 或者提出的算法来测试;  0 = basline ; 1 = proposed scheme 1;
 };
 
 /********************************************************
@@ -542,7 +544,7 @@ struct entry{
 	unsigned int history_ppn[15]; // 记下lpn所对应的ppn的历史版本，最大为100
 	unsigned int count; //记下当前的lpn历史副本指针
 
-	unsigned int pos; //记下当前的ppn在group的内部编号， 默认为-1, 依次从0,1,2,3
+	//unsigned int pos; //记下当前的ppn在group的内部编号， 默认为-1, 依次从0,1,2,3
 };
 
 
