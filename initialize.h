@@ -176,25 +176,66 @@ struct ac_time_characteristics{
 
 
 struct ssd_info{ 
-	double ssd_energy;                   //SSDµÄÄÜºÄ£¬ÊÇÊ±¼äºÍÐ¾Æ¬ÊýµÄº¯Êý,ÄÜºÄÒò×Ó
-	int64_t current_time;                //¼ÇÂ¼ÏµÍ³Ê±¼ä
+
+	int64_t current_time;                //记录系统时间
 	int64_t next_request_time;
-	unsigned int real_time_subreq;       //¼ÇÂ¼ÊµÊ±µÄÐ´ÇëÇó¸öÊý£¬ÓÃÔÚÈ«¶¯Ì¬·ÖÅäÊ±£¬channelÓÅÏÈµÄÇé¿ö
-	int flag;
-	int active_flag;                     //¼ÇÂ¼Ö÷¶¯Ð´ÊÇ·ñ×èÈû£¬Èç¹û·¢ÏÖÖùÈû£¬ÐèÒª½«Ê±¼äÏòÇ°ÍÆ½ø,0±íÊ¾Ã»ÓÐ×èÈû£¬1±íÊ¾±»×èÈû£¬ÐèÒªÏòÇ°ÍÆ½øÊ±¼ä
-	unsigned int page;
 
-	unsigned int token;                  //ÔÚ¶¯Ì¬·ÖÅäÖÐ£¬Îª·ÀÖ¹Ã¿´Î·ÖÅäÔÚµÚÒ»¸öchannelÐèÒªÎ¬³ÖÒ»¸öÁîÅÆ£¬Ã¿´Î´ÓÁîÅÆËùÖ¸µÄÎ»ÖÃ¿ªÊ¼·ÖÅä
-	unsigned int gc_request;             //¼ÇÂ¼ÔÚSSDÖÐ£¬µ±Ç°Ê±¿ÌÓÐ¶àÉÙgc²Ù×÷µÄÇëÇó
 
-	unsigned int write_request_count;    //¼ÇÂ¼Ð´²Ù×÷µÄ´ÎÊý
-	unsigned int read_request_count;     //¼ÇÂ¼¶Á²Ù×÷µÄ´ÎÊý
-	int64_t write_avg;                   //¼ÇÂ¼ÓÃÓÚ¼ÆËãÐ´ÇëÇóÆ½¾ùÏìÓ¦Ê±¼äµÄÊ±¼ä
-	int64_t read_avg;                    //¼ÇÂ¼ÓÃÓÚ¼ÆËã¶ÁÇëÇóÆ½¾ùÏìÓ¦Ê±¼äµÄÊ±¼ä
+	int flag; // 标记是否进行GC
+
+	//配置文件的路径
+	char parameterfilename[30];
+	char tracefilename[30];
+	char outputfilename[30];
+	char statisticfilename[30];
+	char gapfilename[30];
+
+
+	//文件指针
+	FILE * outputfile;
+	FILE * tracefile;
+	FILE * statisticfile;
+	FILE * statisticfile2;
+	FILE * gapoutputfile;
+
+
+
+	unsigned int token;                 //在动态分配中，为防止每次分配在第一个channel需要维持一个令牌，每次从令牌所指的位置开始分配
+	unsigned int gc_request;            //记录在SSD中，当前时刻有多少gc操作的请求
+
+	//SSD参数因子
+    struct parameter_value *parameter;   
+
+    // mapping table
+	struct dram_info *dram;
+	//指向channel结构体数组的首地址, 记录SSD的所有channel chip die plane block page信息
+	struct channel_info *channel_head;  
+	unsigned int page; //记录SSD的page总数
+
+
+	unsigned int request_queue_length;
+	struct request *request_queue;       //dynamic request queue
+	struct request *request_tail;	     // the tail of the request queue
+
+	struct sub_request *subs_w_head;     //当采用全动态分配时，分配是不知道应该挂载哪个channel上，所以先挂在ssd上，等进入process函数时才挂到相应的channel的读请求队列上
+	struct sub_request *subs_w_tail;
+
+
+	unsigned int write_request_count;    //记录写操作的次数
+	int64_t write_avg;                   //记录用于计算写请求平均响应时间的时间
+
+	unsigned int read_request_count;     //记录读操作的次数
+	int64_t read_avg;                    //记录用于计算读请求平均响应时间的时间
+
+	unsigned int delete_request_count;
 	int64_t delete_avg;
+	unsigned int  delete_count;
 
+
+	// 统计信息
 	unsigned int min_lsn;
 	unsigned int max_lsn;
+
 	unsigned long read_count;
 	unsigned long program_count;
 	unsigned long erase_count;
@@ -210,54 +251,24 @@ struct ssd_info{
 	unsigned long mplane_erase_conut;
 	unsigned long interleave_mplane_erase_count;
 	unsigned long gc_copy_back;
-	unsigned long write_flash_count;     //Êµ¼Ê²úÉúµÄ¶ÔflashµÄÐ´²Ù×÷
-	unsigned long waste_page_count;      //¼ÇÂ¼ÒòÎª¸ß¼¶ÃüÁîµÄÏÞÖÆµ¼ÖÂµÄÒ³ÀË·Ñ
+	unsigned long write_flash_count;     //实际产生的对flash的写操作
+	unsigned long waste_page_count;      //记录因为高级命令的限制导致的页浪费
 	float ave_read_size;
 	float ave_write_size;
 	float ave_delete_size;
-	unsigned int request_queue_length;
-	//unsigned int del_request_queue_length;
 
-	unsigned int update_read_count;      //¼ÇÂ¼ÒòÎª¸üÐÂ²Ù×÷µ¼ÖÂµÄ¶îÍâ¶Á³ö²Ù×÷
-
-	char parameterfilename[30];
-	char tracefilename[30];
-	char outputfilename[30];
-	char statisticfilename[30];
-	//char statisticfilename2[30];
-	char gapfilename[30];
+	unsigned int update_read_count;    //记录因为更新操作导致的额外读出操作
 
 
 
-	FILE * outputfile;
-	FILE * tracefile;
-	FILE * statisticfile;
-	FILE * statisticfile2;
-	FILE * gapoutputfile;
+	unsigned long count; //DEBUG信息，记录读写请求数
 
-	unsigned long count;
-
-    struct parameter_value *parameter;   //SSD参数因子
-	struct dram_info *dram;
-	struct request *request_queue;       //dynamic request queue
-	struct request *request_tail;	     // the tail of the request queue
-
-	struct request *del_request_tail;
-
-	struct sub_request *subs_w_head;     //当采用全动态分配时，分配是不知道应该挂载哪个channel上，所以先挂在ssd上，等进入process函数时才挂到相应的channel的读请求队列上
-	struct sub_request *subs_w_tail;
-//	struct event_node *event;            //事件队列，每产生一个新的事件，按照时间顺序加到这个队列，在simulate函数最后，根据这个队列队首的时间，确定时间
-	struct channel_info *channel_head;   //指向channel结构体数组的首地址
-
-	unsigned int tmp_count;
-	unsigned int total_gc;
+	unsigned int total_gc; // 记录初始化 make_aged()函数带来的GC数
 
 
-	unsigned int  delete_count;
+	//生成 删除操作的 期望值
 	unsigned int gap;
-
-	unsigned int delete_request_count;
-
+	// 因为delete operation带来的数据读和写操作数
 	unsigned int live_copy_program;
 
 	unsigned int live_copy_read;
@@ -276,7 +287,6 @@ struct channel_info{
 	int64_t current_time;                //记录该通道的当前时间
 	int64_t next_state_predict_time;     //the predict time of next state, used to decide the sate at the moment
 
-//	struct event_node *event;
 	struct sub_request *subs_r_head;     //channel上的读请求队列头，先服务处于队列头的子请求
 	struct sub_request *subs_r_tail;     //channel上的读请求队列尾，新加进来的子请求加到队尾
 	struct sub_request *subs_w_head;     //channel上的写请求队列头，先服务处于队列头的子请求
@@ -460,16 +470,6 @@ struct sub_request{
 };
 
 
-/***********************************************************************
-*事件节点控制时间的增长，每次时间的增加是根据时间最近的一个事件来确定的
-************************************************************************/
-struct event_node{
-	int type;                        //记录该事件的类型，1表示命令类型，2表示数据传输类型
-	int64_t predict_time;            //记录这个时间开始的预计时间，防止提前执行这个时间
-	struct event_node *next_node;
-	struct event_node *pre_node;
-};
-
 struct parameter_value{
 	unsigned int chip_num;          //记录一个SSD中有多少个颗粒
 	unsigned int dram_capacity;     //记录SSD中DRAM capacity
@@ -589,7 +589,6 @@ struct gc_operation{
 	unsigned int priority;        //记录该gc操作的优先级，1表示不可中断，0表示可中断（软阈值产生的gc请求）
 	struct gc_operation *next_node;
 };
-
 
 
 

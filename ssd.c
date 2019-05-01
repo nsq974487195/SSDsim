@@ -124,7 +124,7 @@ int  main(int argc, char const *argv[])
 
 	ssd=simulate(ssd);
 	statistic_output(ssd);  
-	free_all_node(ssd);
+	//free_all_node(ssd);
 
 	printf("\n");
 	printf("the simulation is completed!\n");
@@ -200,11 +200,12 @@ struct ssd_info *simulate(struct ssd_info *ssd)
 
 int read_ndata(char *buffer, int64_t *time_t, int *lsn, int *size, int *ope) //aligned trace
 {
-	double time_f;
-	int disk;
-	int lsn1;
-	int size1;
-    int rw;
+	double time_f=0.0;
+	int disk=0;
+	int lsn1=0;
+	int size1=0;
+    int rw=0;
+    
     sscanf(buffer, "%lf  %d %d %d %d", &time_f, &disk, &lsn1, &size1, &rw);
 	if(lsn1 == 0 && size1 == 0 && time_f == 0 )
 	{
@@ -1358,7 +1359,6 @@ void free_all_node(struct ssd_info *ssd)
 										new_direct_erase->next_node=ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].erase_node;
 										ssd->channel_head[i].chip_head[j].die_head[k].plane_head[l].erase_node=new_direct_erase;
 									}
-									ssd->tmp_count++;
 									ssd->total_gc++;
 								}
 								
@@ -1537,11 +1537,26 @@ int	create_del_request(struct ssd_info *ssd){
 	{
 		if(ssd->dram->map->map_entry[lpn].state!=0){
 
-			sub=create_del_sub_request(ssd, lpn, ssd->dram->map->map_entry[lpn].pn, request1);
+			if(ssd->parameter->base_or_pro == 0){
+
+				sub=create_del_sub_request(ssd, lpn, ssd->dram->map->map_entry[lpn].pn, request1);
+			
+			}else if(ssd->parameter->base_or_pro == 1){
+
+				struct local *location = find_location(ssd,ssd->dram->map->map_entry[lpn].pn);
+
+				if(location->page%4==0)
+			
+					sub=create_del_sub_request(ssd, lpn, ssd->dram->map->map_entry[lpn].pn, request1); //删除历史副本数据
+
+				free(location);
+				location =NULL;
+			}
+			
 
 			for (int i = 0; i < ssd->dram->map->map_entry[lpn].count; ++i)
 			{
-				if (ssd->dram->map->map_entry[sub->lpn].history_ppn[i] !=0 )
+				if (ssd->dram->map->map_entry[lpn].history_ppn[i] !=0 )
 				{
 					if(ssd->parameter->base_or_pro == 0){
 
@@ -1549,7 +1564,7 @@ int	create_del_request(struct ssd_info *ssd){
 					
 					}else if(ssd->parameter->base_or_pro == 1){
 
-						struct local *location = find_location(ssd,ssd->dram->map->map_entry[sub->lpn].history_ppn[i]);
+						struct local *location = find_location(ssd,ssd->dram->map->map_entry[lpn].history_ppn[i]);
 
 						if(location->page%4==0)
 					

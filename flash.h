@@ -60,7 +60,7 @@ Status static_delete_SD(struct ssd_info * ssd, unsigned int channel,unsigned int
 
 Status static_delete_baseline(struct ssd_info * ssd, unsigned int channel,unsigned int chip, unsigned int die,struct sub_request * sub);
 
-struct local *copy_location(struct local *slocation, struct local *dlocation,int shift);
+struct local *copy_location(struct local *slocation, struct local *dlocation);
 
 //分配block的策略，可以按组分配或者多写点分配
 Status find_active_block(struct ssd_info *ssd,unsigned int channel, unsigned int chip, unsigned int die, unsigned int plane, unsigned int page_group,struct local *location);

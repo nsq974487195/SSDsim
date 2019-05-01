@@ -6,7 +6,7 @@ clean:
 .PHONY: clean
 
 ssd: ssd.o  tools.o avlTree.o flash.o initialize.o pagemap.o
-	cc -g -lm -o ssd ssd.o avlTree.o flash.o initialize.o pagemap.o tools.o 
+	cc -g -lm -O0 -o ssd ssd.o avlTree.o flash.o initialize.o pagemap.o tools.o 
 #	rm -f *.o
 ssd.o: flash.h initialize.h pagemap.h ssd.c
 	gcc -c -g ssd.c 
