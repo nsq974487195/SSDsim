@@ -81,7 +81,7 @@ struct sub_request * create_del_sub_request(struct ssd_info* ssd, unsigned int l
 		sub->complete_time=ssd->current_time+1000;
 	}
 
-	return 0;
+	return sub;
 }
 
 
@@ -535,6 +535,7 @@ Status find_active_block_baseline(struct ssd_info *ssd,struct local *location, s
 
 	else return FAILURE;
 }
+
 
 Status  find_active_block_select(struct ssd_info *ssd,struct local *location, struct sub_request *sub){
 
@@ -1161,55 +1162,69 @@ Status static_write(struct ssd_info * ssd, unsigned int channel,unsigned int chi
 }
 
 
+Status  static_delete_select(struct ssd_info * ssd, unsigned int channel,unsigned int chip, unsigned int die,struct sub_request * sub){
 
-Status static_delete(struct ssd_info * ssd, unsigned int channel,unsigned int chip, unsigned int die,struct sub_request * sub)
+	if(ssd->parameter->base_or_pro == 0)
+
+		return static_delete_baseline(ssd,channel,chip,die,sub);
+
+	else if(ssd->parameter->base_or_pro == 1)
+
+		return static_delete_SD(ssd,channel,chip,die,sub);
+
+	else { printf("%s\n"," no used scheme!"); return FAILURE;}
+}
+
+
+// proposed scheme 
+Status static_delete_SD(struct ssd_info * ssd, unsigned int channel,unsigned int chip, unsigned int die,struct sub_request * sub)
 {
-	
 	// 分别读取lpn所对应的ppn的地址,计算读取和迁移的延迟时间
 
-	long long time=0;
+	unsigned int read_count=0, program_count=1; //需要迁移的初始值为1,page所在的wl都要迁移;
+
+	struct local *location= sub->location, *upper_right_location=NULL;
+
+	unsigned int ppn= find_ppn(ssd,location->channel,location->chip,location->die,location->plane,location->block,location->page);
 
 	int transfer_size=0;
 
-	unsigned int ppn=1, pair_ppn=1, upper_left_ppn=1, upper_right_ppn=1, below_left_ppn=1, below_right_ppn=1,flag=0,count=0; //需要迁移的初始值为2,page所在的wl都要迁移;
-
-	struct local *location=NULL, *pair_location=NULL, *upper_left_location=NULL, *upper_right_location=NULL, *below_left_location=NULL, *below_right_location=NULL;
-
-	location = sub->location;
-
 	//判断上下page是否有效
-	for (int i = 1; i < 4; ++i)
-	{
-		if (ssd->dram->map->map_entry[sub->lpn].history_ppn[i] !=0 )
-		{
-			pair_location = find_location(ssd,ssd->dram->map->map_entry[sub->lpn].history_ppn[i]); 
-
-			if (ssd->channel_head[pair_location->channel].chip_head[pair_location->chip].die_head[pair_location->die].plane_head[pair_location->plane].blk_head[pair_location->block].page_head[pair_location->page].valid_state !=0)
+	for (int i = 1; i < 4; i++)
+	{	// free_state !=PG_SUB 则表示不是未写过的page
+		if (ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+i].free_state != PG_SUB)
 			
-			count++;
-		}
+			program_count++;	
 	}
 
-	ssd->live_copy = ssd->live_copy + count;
-	//count = count /3 +1;
+	// 判断受program disturb影响的page是否包含数据,包含数据则需要迁移
+	if ((location->page+5 < ssd->parameter->page_block )&&(ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+5].lpn != -1 )){
+
+		upper_right_location = copy_location(location,upper_right_location,5);
+
+		move_page(ssd, upper_right_location, &transfer_size);
+
+		read_count++;
+
+		program_count++;
+
+		free(upper_right_location);
+
+		upper_right_location=NULL;
+	}
+
+	// 记录所有的迁移page数
+	ssd->live_copy_program = ssd->live_copy_program + program_count;
+
+	ssd->live_copy_read = ssd->live_copy_read + read_count;
+
 	// 记下读操作和写操作的时间
 	int read_time = 7*ssd->parameter->time_characteristics.tWC+(ssd->parameter->subpage_page*ssd->parameter->subpage_capacity)*ssd->parameter->time_characteristics.tRC +page_read_time(ssd, sub->location->page,0);
-
 	
-	int program_time = 7*ssd->parameter->time_characteristics.tWC+(ssd->parameter->subpage_page*ssd->parameter->subpage_capacity)*ssd->parameter->time_characteristics.tWC+page_program_time(ssd, sub->location->page)/2;
+	int program_time = 7*ssd->parameter->time_characteristics.tWC+(ssd->parameter->subpage_page*ssd->parameter->subpage_capacity)*ssd->parameter->time_characteristics.tWC+page_program_time(ssd, sub->location->page);
 
-	if(ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].valid_state !=0)
-	{
-		move_page(ssd, location, &transfer_size); // 把要删除的数据给迁移走,trace后续可能会读写操作的lpn
-		time = read_time+program_time;
-	} else
-	{
-		time = program_time;
-	}
-
-	time = time+ count*(program_time  - page_program_time(ssd, sub->location->page)/2);
-
-	sub->next_state_predict_time = ssd->current_time+  program_time + count*program_time;
+	// sub request的下一步时间
+	sub->next_state_predict_time = ssd->current_time +  read_count*read_time + program_count*program_time;	
 	
 	sub->complete_time = sub->next_state_predict_time;	
 
@@ -1219,7 +1234,258 @@ Status static_delete(struct ssd_info * ssd, unsigned int channel,unsigned int ch
 	ssd->channel_head[channel].current_state=CHANNEL_TRANSFER;										
 	ssd->channel_head[channel].current_time=ssd->current_time;										
 	ssd->channel_head[channel].next_state=CHANNEL_IDLE;										
-	ssd->channel_head[channel].next_state_predict_time= ssd->current_time+time;
+	ssd->channel_head[channel].next_state_predict_time= sub->complete_time - read_count*page_read_time(ssd, sub->location->page,0)  - program_count*page_program_time(ssd, sub->location->page) ;
+
+	ssd->channel_head[channel].chip_head[chip].current_state=CHIP_WRITE_BUSY;										
+	ssd->channel_head[channel].chip_head[chip].current_time=ssd->current_time;									
+	ssd->channel_head[channel].chip_head[chip].next_state=CHIP_IDLE;										
+	ssd->channel_head[channel].chip_head[chip].next_state_predict_time= sub->complete_time;
+
+	return SUCCESS;
+}
+
+
+struct local *copy_location(struct local *slocation, struct local *dlocation,int shift){
+
+	dlocation=(struct local *)malloc(sizeof(struct local));
+    alloc_assert(dlocation,"dlocation");
+	memset(dlocation,0, sizeof(struct local));
+
+	dlocation->channel = slocation->channel;
+	dlocation->chip = slocation->chip;
+	dlocation->die = slocation->die;
+	dlocation->plane=slocation->plane;
+	dlocation->block = slocation->block;
+	dlocation->page = slocation->page+shift;
+
+	return dlocation;
+}
+
+// baseline的时间计算
+Status static_delete_baseline(struct ssd_info * ssd, unsigned int channel,unsigned int chip, unsigned int die,struct sub_request * sub)
+{
+	
+	// 分别读取lpn所对应的ppn的地址,计算读取和迁移的延迟时间
+
+	long long time=0;
+
+	int transfer_size=0;
+
+	unsigned int ppn=1, pair_ppn=1, upper_left_ppn=1, upper_right_ppn=1, below_left_ppn=1, below_right_ppn=1,flag=0;
+	//需要迁移的初始值为2,page所在的wl都要迁移
+	unsigned int read_count=0,program_count=0; 
+
+	struct local *location = sub->location,  *pair_location=NULL, *upper_left_location=NULL, *upper_right_location=NULL, *below_left_location=NULL, *below_right_location=NULL;
+
+
+	// 排除是第一个或者最后一个page的可能性
+	if(sub->location->page ==0 || sub->location->page ==1)
+	{
+		below_left_ppn=0;
+
+		below_right_ppn=0;
+	}
+
+	if(sub->location->page ==ssd->parameter->page_block-1 || sub->location->page ==ssd->parameter->page_block-2)
+	{
+		upper_left_ppn = 0;
+
+		upper_right_ppn= 0;	
+	}
+
+	//判断reprogram的page是LSB 还是MSB   0 = LSB 1=MSB
+	if( sub->location->page%2 ==1 )   flag ==1; //MSB
+
+	//判断上下page是否有效
+	if(flag==0)
+	{	// 根据page存储的lpn地址是否 =-1 判断是否需要迁移操作
+		if (ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+1].lpn  !=-1){
+			
+			pair_location = copy_location(location,pair_location,1);
+			
+			move_page(ssd, pair_location, &transfer_size);
+
+			read_count++;  
+
+			program_count ++;
+
+			free(pair_location);
+
+			pair_location=NULL;
+		}
+
+
+		if((below_left_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page-2].lpn  !=-1)){
+			
+			below_left_location = copy_location(location,below_left_location,-2);
+			
+			move_page(ssd, below_left_location, &transfer_size);
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(below_left_location);
+
+			below_left_location=NULL;
+		}
+		
+
+		if((below_right_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page-1].lpn  !=-1)){
+
+			below_right_location = copy_location(location,below_right_location,-1);
+			
+			move_page(ssd, below_right_location, &transfer_size);
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(below_right_location);
+
+			below_right_location=NULL;
+		}
+		
+		
+		if((upper_left_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+2].lpn  !=-1 )){
+			
+			upper_left_location = copy_location(location,upper_left_location,2);
+			
+			move_page(ssd, upper_left_location, &transfer_size);
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(upper_left_location);
+
+			upper_left_location=NULL;
+		}
+
+	
+		if((upper_right_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+3].lpn !=-1 )){	
+
+			upper_right_location = copy_location(location,upper_right_location,3);
+			
+			move_page(ssd, upper_right_location, &transfer_size);		
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(upper_right_location);
+
+			upper_right_location=NULL;
+		}
+		
+
+	}else{
+
+		if (ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page-1].lpn !=-1)
+		{
+			pair_location = copy_location(location,pair_location,-1);
+			
+			move_page(ssd, pair_location, &transfer_size);
+
+			read_count++;  
+
+			program_count ++;
+
+			free(pair_location);
+
+			pair_location=NULL;
+		}
+
+		if((below_left_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page-3].lpn !=-1)){
+			
+			below_left_location = copy_location(location,below_left_location,-3);
+			
+			move_page(ssd, below_left_location, &transfer_size);
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(below_left_location);
+
+			below_left_location=NULL;
+
+		}
+
+		if((below_right_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page-2].lpn !=-1 )){
+			
+			below_right_location = copy_location(location,below_right_location,-2);
+			
+			move_page(ssd, below_right_location, &transfer_size);
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(below_right_location);
+
+			below_right_location=NULL;
+		
+		}
+
+		if((upper_left_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+1].lpn !=-1 )){
+
+			upper_left_location = copy_location(location,upper_left_location,1);
+			
+			move_page(ssd, upper_left_location, &transfer_size);
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(upper_left_location);
+
+			upper_left_location=NULL;
+		}
+
+		if((upper_right_ppn !=0)&&( ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page+2].lpn !=-1 )){	
+
+			upper_right_location = copy_location(location,upper_right_location,2);
+			
+			move_page(ssd, upper_right_location, &transfer_size);		
+
+			read_count++; 
+			
+			program_count ++;
+
+			free(upper_right_location);
+
+			upper_right_location=NULL;
+		
+		}
+
+	}
+	// 记录所有的迁移page数
+	ssd->live_copy_program = ssd->live_copy_program + program_count;
+
+	ssd->live_copy_read = ssd->live_copy_read + read_count;
+
+	// 记下读操作和写操作的时间
+	int read_time = 7*ssd->parameter->time_characteristics.tWC+(ssd->parameter->subpage_page*ssd->parameter->subpage_capacity)*ssd->parameter->time_characteristics.tRC +page_read_time(ssd, sub->location->page,0);
+
+	
+	int program_time = 7*ssd->parameter->time_characteristics.tWC+(ssd->parameter->subpage_page*ssd->parameter->subpage_capacity)*ssd->parameter->time_characteristics.tWC+page_program_time(ssd, sub->location->page);
+
+
+
+	sub->next_state_predict_time = ssd->current_time+ program_time + read_count*read_time+ program_count *program_time;
+	
+	sub->complete_time = sub->next_state_predict_time;	
+
+
+
+    /****************************************************************
+	 channel chip 的下一步的时间计算
+	*****************************************************************/
+	ssd->channel_head[channel].current_state=CHANNEL_TRANSFER;										
+	ssd->channel_head[channel].current_time=ssd->current_time;										
+	ssd->channel_head[channel].next_state=CHANNEL_IDLE;										
+	ssd->channel_head[channel].next_state_predict_time= sub->complete_time - (program_count+1)*page_program_time(ssd, sub->location->page) - read_count*page_read_time(ssd, sub->location->page,0);
 
 	ssd->channel_head[channel].chip_head[chip].current_state=CHIP_WRITE_BUSY;										
 	ssd->channel_head[channel].chip_head[chip].current_time=ssd->current_time;									
@@ -1304,7 +1570,7 @@ Status services_2_delete(struct ssd_info * ssd,unsigned int channel,unsigned int
 			sub->current_state=SR_D_TRANSFER;
 			sub->next_state=SR_COMPLETE;
 
-			static_delete(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);   
+			static_delete_select(ssd, sub->location->channel,sub->location->chip, sub->location->die,sub);   
 					
 			delete_del_sub_request(ssd,channel,sub);
 			*channel_busy_flag=1;
@@ -1534,105 +1800,6 @@ struct ssd_info *process(struct ssd_info *ssd)
 			}
 		}
 	}
-	return ssd;
-}
-
-
-/*****************************************************************************************
-*函数的功能就是把子请求从ssd->subs_w_head或者ssd->channel_head[channel].subs_w_head上删除
-******************************************************************************************/
-struct ssd_info *delete_from_channel(struct ssd_info *ssd,unsigned int channel,struct sub_request * sub_req)
-{
-	struct sub_request *sub,*p;
-    
-	/******************************************************************
-	*完全动态分配子请求就在ssd->subs_w_head上
-	*不是完全动态分配子请求就在ssd->channel_head[channel].subs_w_head上
-	*******************************************************************/
-	if ((ssd->parameter->allocation_scheme==0)&&(ssd->parameter->dynamic_allocation==0))   sub=ssd->subs_w_head;
-	
-	else	sub=ssd->channel_head[channel].subs_w_head;
-
-	p=sub;
-
-	while (sub!=NULL)
-	{
-		if (sub==sub_req)
-		{
-			if ((ssd->parameter->allocation_scheme==0)&&(ssd->parameter->dynamic_allocation==0)){	
-			 	/*将这个子请求从sub request队列中删除*/			
-				if (sub==ssd->subs_w_head)                                                    
-				{
-					if (ssd->subs_w_head!=ssd->subs_w_tail)
-					{
-						ssd->subs_w_head=sub->next_node;
-						sub=ssd->subs_w_head;
-						continue;
-					} 
-					else
-					{
-						ssd->subs_w_head=NULL;
-						ssd->subs_w_tail=NULL;
-						p=NULL;
-						break;
-					}
-				}//if (sub==ssd->subs_w_head) 
-				else
-				{
-					if (sub->next_node!=NULL)
-					{
-						p->next_node=sub->next_node;
-						sub=p->next_node;
-						continue;
-					} 
-					else
-					{
-						ssd->subs_w_tail=p;
-						ssd->subs_w_tail->next_node=NULL;
-						break;
-					}
-				}
-			}//if ((ssd->parameter->allocation_scheme==0)&&(ssd->parameter->dynamic_allocation==0)) 
-			else
-			{
-				/*将这个子请求从channel队列中删除*/
-				if (sub==ssd->channel_head[channel].subs_w_head)                               
-				{
-					if (ssd->channel_head[channel].subs_w_head!=ssd->channel_head[channel].subs_w_tail)
-					{
-						ssd->channel_head[channel].subs_w_head=sub->next_node;
-						sub=ssd->channel_head[channel].subs_w_head;
-						continue;;
-					} 
-					else
-					{
-						ssd->channel_head[channel].subs_w_head=NULL;
-						ssd->channel_head[channel].subs_w_tail=NULL;
-						p=NULL;
-						break;
-					}
-				}//if (sub==ssd->channel_head[channel].subs_w_head)
-				else
-				{
-					if (sub->next_node!=NULL)
-					{
-						p->next_node=sub->next_node;
-						sub=p->next_node;
-						continue;
-					} 
-					else
-					{
-						ssd->channel_head[channel].subs_w_tail=p;
-						ssd->channel_head[channel].subs_w_tail->next_node=NULL;
-						break;
-					}
-				}//else
-			}//else
-		}//if (sub==sub_req)
-		p=sub;
-		sub=sub->next_node;
-	}//while (sub!=NULL)
-
 	return ssd;
 }
 

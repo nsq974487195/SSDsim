@@ -258,8 +258,9 @@ struct ssd_info{
 
 	unsigned int delete_request_count;
 
-	unsigned int live_copy;
+	unsigned int live_copy_program;
 
+	unsigned int live_copy_read;
 };
 
 

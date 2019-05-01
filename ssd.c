@@ -1087,7 +1087,8 @@ void statistic_output(struct ssd_info *ssd)
 	fprintf(ssd->statisticfile,"buffer write hits: %13d\n",ssd->dram->buffer->write_hit);
 	fprintf(ssd->statisticfile,"buffer write miss: %13d\n",ssd->dram->buffer->write_miss_hit);
 	fprintf(ssd->statisticfile,"erase: %13d\n",erase);
-	fprintf(ssd->statisticfile,"copy page: %13d\n",ssd->live_copy);
+	fprintf(ssd->statisticfile,"the NO. of page readed by secure deletion: %13d\n",ssd->live_copy_read);
+	fprintf(ssd->statisticfile,"the NO. of page reprogramed by secure deletion: %13d\n",ssd->live_copy_program);
 	fflush(ssd->statisticfile);
 
 	fclose(ssd->statisticfile);
@@ -1465,7 +1466,7 @@ struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
 
 		ssd->delete_count=0;
 
-		//create_del_request(ssd);
+		create_del_request(ssd);
 	
 	}else{
 
@@ -1538,10 +1539,27 @@ int	create_del_request(struct ssd_info *ssd){
 
 			sub=create_del_sub_request(ssd, lpn, ssd->dram->map->map_entry[lpn].pn, request1);
 
-			for (int i = 0; i < ssd->dram->map->map_entry[lpn].count/3; ++i)
+			for (int i = 0; i < ssd->dram->map->map_entry[lpn].count; ++i)
 			{
 				if (ssd->dram->map->map_entry[sub->lpn].history_ppn[i] !=0 )
-					sub=create_del_sub_request(ssd, lpn, ssd->dram->map->map_entry[lpn].history_ppn[i], request1); //删除历史副本数据
+				{
+					if(ssd->parameter->base_or_pro == 0){
+
+						sub=create_del_sub_request(ssd, lpn, ssd->dram->map->map_entry[lpn].history_ppn[i], request1); //删除历史副本数据
+					
+					}else if(ssd->parameter->base_or_pro == 1){
+
+						struct local *location = find_location(ssd,ssd->dram->map->map_entry[sub->lpn].history_ppn[i]);
+
+						if(location->page%4==0)
+					
+							sub=create_del_sub_request(ssd, lpn, ssd->dram->map->map_entry[lpn].history_ppn[i], request1); //删除历史副本数据
+
+						free(location);
+						location =NULL;
+					
+					} else{ printf("%s\n"," scheme error!" );}
+				}
 			}
 		}
 		lpn++;
