@@ -106,7 +106,7 @@ int  main(int argc, char const *argv[])
 	
 	pre_process_page(ssd);
 
-//显示不同的plane具有的剩余free page
+	//显示不同的plane具有的剩余free page
 	// for (i=0;i<ssd->parameter->channel_number;i++)
 	// {
 	// 	for (j=0;j<ssd->parameter->die_chip;j++)
@@ -124,12 +124,12 @@ int  main(int argc, char const *argv[])
 
 	ssd=simulate(ssd);
 	statistic_output(ssd);  
-	//free_all_node(ssd);
+	free_all_node(ssd);
 
 	printf("\n");
 	printf("the simulation is completed!\n");
 	
-	return 1;
+	return 0;
  	//_CrtDumpMemoryLeaks(); 
 }
 
@@ -940,8 +940,9 @@ void trace_output(struct ssd_info* ssd){
 *******************************************************************************/
 void statistic_output(struct ssd_info *ssd)
 {
-	unsigned int lpn_count=0,i,j,k,m,erase=0,plane_erase=0;
+	unsigned int lpn_count=0,i,j,k,m,p=0,erase=0,plane_erase=0;
 	double gc_energy=0.0;
+
 #ifdef DEBUG
 	printf("enter statistic_output,  current time:%lld\n",ssd->current_time);
 #endif
@@ -952,7 +953,7 @@ void statistic_output(struct ssd_info *ssd)
 		{
 			for(k=0;k<ssd->parameter->die_chip;k++)
 			{
-				for(int p=0;p<ssd->parameter->plane_die;p++)
+				for(p=0;p<ssd->parameter->plane_die;p++)
 				{			
 					plane_erase=0;
 					for(m=0;m<ssd->parameter->block_plane;m++)
@@ -1486,6 +1487,7 @@ int	create_del_request(struct ssd_info *ssd){
 	int large_lsn=(int)((ssd->parameter->subpage_page*ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->plane_die*ssd->parameter->die_chip*ssd->parameter->chip_num)*(1-ssd->parameter->overprovide));
 	srand((int)time(0));
 	int lsn = rand()%large_lsn; //随机生成要删除的目标lsn
+	int i=0;
 
 	while(ssd->dram->map->map_entry[lsn/ssd->parameter->subpage_page].state ==0 ){
 
@@ -1554,7 +1556,7 @@ int	create_del_request(struct ssd_info *ssd){
 			}
 			
 
-			for (int i = 0; i < ssd->dram->map->map_entry[lpn].count; ++i)
+			for (i = 0; i < ssd->dram->map->map_entry[lpn].count; ++i)
 			{
 				if (ssd->dram->map->map_entry[lpn].history_ppn[i] !=0 )
 				{

@@ -5,7 +5,7 @@
 #include <malloc.h>
 //#include <sys/malloc.h>
 #include <stdlib.h>
-
+#include <stdint.h> // fix unknown type name int64_t error
 #define AVL_NULL		(TREE_NODE *)0
 
 #define EH_FACTOR	0

@@ -555,7 +555,7 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 
 		if(ssd->dram->map->map_entry[lpn].count==15){ //达到最大的历史数
 
-			for (int i = 0; i < ssd->dram->map->map_entry[lpn].count-5; i++)
+			for (i = 0; i < ssd->dram->map->map_entry[lpn].count-5; i++)
 			{
 				ssd->dram->map->map_entry[lpn].history_ppn[i] = ssd->dram->map->map_entry[lpn].history_ppn[i+5];
 			}

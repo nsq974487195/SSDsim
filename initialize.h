@@ -127,7 +127,7 @@ Hao Luo         2011/01/01        2.0           Change               luohao13568
 #define FAILURE		0
 #define ERROR		-1
 #define INFEASIBLE	-2
-#define OVERFLOW	-3
+#define OVER_FLOW	-3
 typedef int Status;     
 
 struct ac_time_characteristics{
